@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-from MulticoreTSNE import MulticoreTSNE as TSNE
 import phenograph
 
 from scipy.sparse import csr_matrix, find, issparse
@@ -160,6 +159,7 @@ def run_tsne(data, n_dim=2, perplexity=150, **kwargs):
     :param n_dim: Number of dimensions for tSNE embedding
     :return: tSNE embedding of the data
     """
+    raise NotImplementedError("MulticoreTSNE is removed from this version of Palantir.")
     tsne = TSNE(n_components=n_dim, perplexity=perplexity, **kwargs).fit_transform(
         data.values
     )
