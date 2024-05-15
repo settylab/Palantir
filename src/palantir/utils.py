@@ -3,6 +3,10 @@ from warnings import warn
 import pandas as pd
 import numpy as np
 
+import jax
+import jax.numpy as jnp
+from jax.experimental import sparse
+
 from joblib import Parallel, delayed
 import gc
 
@@ -12,6 +16,7 @@ import mellon
 import scanpy as sc
 
 from .core import run_palantir
+from .jax_eigs import eigs_jax_sparse
 
 from .validation import _validate_obsm_key
 
@@ -402,7 +407,63 @@ def diffusion_maps_from_kernel(
     for i in range(V.shape[1]):
         V[:, i] = V[:, i] / np.linalg.norm(V[:, i])
 
-    return {"T": T, "EigenVectors": pd.DataFrame(V), "EigenValues": pd.Series(D)}
+    return {"T": T, "EigenVectors": V, "EigenValues": D}
+
+
+def diffusion_maps_from_kernel_jax(kernel: csr_matrix, n_components: int = 10, seed: int = 0):
+    """
+    Compute the diffusion map given a kernel matrix using JAX for acceleration.
+
+    Parameters
+    ----------
+    kernel : csr_matrix
+        Precomputed kernel matrix.
+    n_components : int
+        Number of diffusion components to compute. Default is 10.
+    seed : int
+        Seed for random initialization. Default is 0.
+
+    Returns
+    -------
+    dict
+        T-matrix (T), Diffusion components (EigenVectors) and corresponding eigenvalues (EigenValues).
+    """
+    key = jax.random.PRNGKey(seed)
+
+    # Convert the kernel matrix to COO format to access row and column indices
+    kernel_coo = kernel.tocoo()
+
+    # Convert the kernel matrix to JAX sparse BCOO format
+    data = jax.device_put(kernel_coo.data)
+    indices = jax.device_put(jnp.vstack((kernel_coo.row, kernel_coo.col)).T)
+
+    kernel_jax_sparse = sparse.BCOO((data, indices), shape=kernel.shape)
+
+    # Compute row sums directly on data
+    row_sums = jnp.zeros(kernel.shape[0])
+    row_sums = row_sums.at[kernel_coo.row].add(kernel_coo.data)
+
+    # Avoid dense matrix operation, work directly with the data
+    D_inv_sqrt = jnp.where(row_sums != 0, 1.0 / jnp.sqrt(row_sums), 0)
+    D_inv_sqrt_data = D_inv_sqrt[kernel_coo.row]  # apply the normalization directly to non-zero data
+    normalized_data = D_inv_sqrt_data * kernel_coo.data
+
+    T = sparse.BCOO((normalized_data, indices), shape=kernel.shape)
+
+    # Random initialization for eigenvector calculation
+    if seed is not None:
+        v0 = jax.random.normal(key, (T.shape[0],))
+    else:
+        v0 = None
+
+    # Compute eigenvalues and eigenvectors
+    eigenvalues, eigenvectors = eigs_jax_sparse(T, n_components, tol=1e-4, maxiter=1000, v0=v0)
+
+    # Normalize eigenvectors
+    eigenvectors = eigenvectors / jnp.linalg.norm(eigenvectors, axis=0)
+
+    return {"T": T, "EigenVectors": eigenvectors, "EigenValues": eigenvalues}
+
 
 
 def run_diffusion_maps(
@@ -485,6 +546,93 @@ def run_diffusion_maps(
         data.uns[eigval_key] = res["EigenValues"].values
 
     return res
+
+def run_diffusion_maps(
+    data: Union[pd.DataFrame, sc.AnnData],
+    n_components: int = 10,
+    knn: int = 30,
+    alpha: float = 0,
+    seed: Union[int, None] = 0,
+    pca_key: str = "X_pca",
+    kernel_key: str = "DM_Kernel",
+    sim_key: str = "DM_Similarity",
+    eigval_key: str = "DM_EigenValues",
+    eigvec_key: str = "DM_EigenVectors",
+    jax: bool = False
+):
+    """
+    Run Diffusion maps using the adaptive anisotropic kernel.
+
+    Parameters
+    ----------
+    data : Union[pd.DataFrame, sc.AnnData]
+        PCA projections of the data or adjacency matrix.
+    n_components : int, optional
+        Number of diffusion components. Default is 10.
+    knn : int, optional
+        Number of nearest neighbors for graph construction. Default is 30.
+    alpha : float, optional
+        Normalization parameter for the diffusion operator. Default is 0.
+    seed : Union[int, None], optional
+        Numpy random seed, randomized if None, set to an arbitrary integer for reproducibility. Default is 0.
+    pca_key, kernel_key, sim_key, eigval_key, eigvec_key : str, optional
+        Keys to retrieve/store data in sc.AnnData object.
+    jax : bool, optional
+        Whether to use the JAX implementation of the diffusion map. Default is False.
+
+    Returns
+    -------
+    dict
+        Diffusion components, corresponding eigenvalues, and the diffusion operator.
+        If sc.AnnData is passed as data, these results are also written to the input object and returned.
+    """
+
+    if isinstance(data, sc.AnnData):
+        data_df = pd.DataFrame(data.obsm[pca_key], index=data.obs_names)
+    else:
+        data_df = data
+
+    if not isinstance(data_df, pd.DataFrame) and not issparse(data_df):
+        raise ValueError("'data_df' should be a pd.DataFrame or a sparse matrix.")
+
+    # Decide which diffusion maps function to use
+    if jax:
+        diffusion_maps_func = diffusion_maps_from_kernel_jax
+    else:
+        diffusion_maps_func = diffusion_maps_from_kernel
+
+    # Compute or retrieve kernel
+    if not issparse(data_df):
+        kernel = compute_kernel(data_df, knn, alpha)
+    else:
+        warn(
+            "'data' is a sparse matrix and will be interpreted as kernel. "
+            "To avoid this warning compute diffusion maps from a precomputed kernel."
+        )
+        kernel = data_df
+
+    # Calculate diffusion maps
+    res = diffusion_maps_func(kernel, n_components, seed)
+
+    # Convert JAX arrays to NumPy arrays before writing to AnnData
+    if jax:
+        res["T"] = np.asarray(res["T"].toarray())
+        res["EigenVectors"] = np.asarray(res["EigenVectors"])
+        res["EigenValues"] = np.asarray(res["EigenValues"])
+
+    # Store results
+    res["kernel"] = kernel
+    if not issparse(data_df):
+        res["EigenVectors"].index = data_df.index
+
+    if isinstance(data, sc.AnnData):
+        data.obsp[kernel_key] = res["kernel"]
+        data.obsp[sim_key] = res["T"]
+        data.obsm[eigvec_key] = res["EigenVectors"]
+        data.uns[eigval_key] = res["EigenValues"]
+
+    return res
+
 
 
 def _dot_helper_func(x, y):
