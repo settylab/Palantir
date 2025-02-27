@@ -949,7 +949,7 @@ def prepare_color_vector(
 
     color_source_vector = _get_color_source_vector(ad, color, layer=layer)
     color_vector, categorical = _color_vector(
-        ad, color, color_source_vector, palette=palette, na_color=na_color
+        ad, color, values=color_source_vector, palette=palette, na_color=na_color
     )
     if mask is not None:
         color_vector = color_vector[mask]
@@ -969,21 +969,41 @@ def _add_categorical_legend(
     na_in_legend: bool,
 ):
     """Add a legend to the passed Axes."""
-    if na_in_legend and pd.isnull(color_source_vector).any():
-        if "NA" in color_source_vector:
-            raise NotImplementedError(
-                "No fallback for null labels has been defined if NA already in categories."
-            )
-        color_source_vector = color_source_vector.add_categories("NA").fillna("NA")
-        palette = palette.copy()
-        palette["NA"] = na_color
-    if color_source_vector.dtype == bool:
-        cats = pd.Categorical(color_source_vector.astype(str)).categories
-    else:
+    # Handle both pandas categorical and numpy array inputs
+    if isinstance(color_source_vector, pd.Categorical):
+        if na_in_legend and pd.isnull(color_source_vector).any():
+            if "NA" in color_source_vector:
+                raise NotImplementedError(
+                    "No fallback for null labels has been defined if NA already in categories."
+                )
+            color_source_vector = color_source_vector.add_categories("NA").fillna("NA")
+            palette = palette.copy()
+            palette["NA"] = na_color
         cats = color_source_vector.categories
+    else:
+        # For numpy arrays or other types
+        if color_source_vector.dtype == bool:
+            # For boolean arrays
+            cats = ['True', 'False']
+        elif na_in_legend and pd.isnull(color_source_vector).any():
+            # Create categorical data with NA values
+            color_categorical = pd.Categorical(color_source_vector)
+            unique_values = [v for v in pd.unique(color_categorical) if not pd.isnull(v)]
+            cats = list(unique_values) + ['NA']
+            palette = palette.copy()
+            palette["NA"] = na_color
+        else:
+            # For non-boolean arrays without NA values
+            cats = pd.unique(color_source_vector)
+
+    # If palette is empty but we have categorical data, create default colors
+    if not palette and len(cats) > 0:
+        set2_colors = matplotlib.colormaps["Set2"](range(len(cats)))
+        palette = {cat: matplotlib.colors.rgb2hex(set2_colors[i]) for i, cat in enumerate(cats)}
 
     for label in cats:
-        ax.scatter([], [], c=palette[label], label=label)
+        if label in palette:
+            ax.scatter([], [], c=palette[label], label=label)
     ax.legend(
         frameon=False,
         loc="center left",
@@ -1192,10 +1212,22 @@ def plot_stats(
         ax.locator_params(axis="both", nbins=nticks)
 
     if categorical or color_vector.dtype == bool:
+        if color is not None:
+            # Check if the color column is categorical, if not, don't try to use _get_palette
+            if isinstance(ad.obs.get(color), pd.Series) and isinstance(ad.obs[color].dtype, pd.CategoricalDtype):
+                legend_palette = _get_palette(ad, color)
+            else:
+                # Use a default palette for non-categorical data
+                set2_colors = matplotlib.colormaps["Set2"](range(10))
+                legend_palette = {i: matplotlib.colors.rgb2hex(rgba) for i, rgba in enumerate(set2_colors)}
+        else:
+            # Default palette for when color is None
+            legend_palette = {True: config.SELECTED_COLOR, False: config.DESELECTED_COLOR} if color_vector.dtype == bool else {}
+            
         _add_categorical_legend(
             ax,
             color_source_vector,
-            palette=_get_palette(ad, color),
+            palette=legend_palette,
             legend_anchor=legend_anchor,
             legend_fontweight=legend_fontweight,
             legend_fontsize=legend_fontsize,
