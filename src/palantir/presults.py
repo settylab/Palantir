@@ -551,14 +551,31 @@ def select_branch_cells(
     prob_thresholds = np.empty_like(fate_probs)
     n = fate_probs.shape[0]
 
-    step = n // PSEUDOTIME_RES
-    nsteps = n // step
-    for i in range(nsteps):
-        l, r = i * step, (i + 1) * step
-        mprob = np.quantile(sorted_fate_probs[:r, :], 1 - q, axis=0)
-        prob_thresholds[l:r, :] = mprob[None, :]
-    mprob = np.quantile(sorted_fate_probs, 1 - q, axis=0)
-    prob_thresholds[r:, :] = mprob[None, :]
+    # Calculate step size, ensuring it's at least 1 to avoid division by zero
+    step = max(1, n // PSEUDOTIME_RES)
+    
+    # Handle cases with small numbers of cells or large PSEUDOTIME_RES
+    if step == 1:
+        # If step is 1, we use as many steps as we have cells
+        nsteps = n
+        # Process in small chunks
+        for i in range(nsteps):
+            r = i + 1  # Include only up to current cell
+            mprob = np.quantile(sorted_fate_probs[:r, :], 1 - q, axis=0)
+            prob_thresholds[i:i+1, :] = mprob[None, :]
+    else:
+        # Regular processing with multiple cells per step
+        nsteps = n // step
+        for i in range(nsteps):
+            l, r = i * step, (i + 1) * step
+            mprob = np.quantile(sorted_fate_probs[:r, :], 1 - q, axis=0)
+            prob_thresholds[l:r, :] = mprob[None, :]
+        
+        # Handle any remaining cells
+        if nsteps * step < n:
+            mprob = np.quantile(sorted_fate_probs, 1 - q, axis=0)
+            prob_thresholds[nsteps * step:, :] = mprob[None, :]
+    
     prob_thresholds = np.maximum.accumulate(prob_thresholds, axis=0)
 
     masks = np.empty_like(fate_probs).astype(bool)
