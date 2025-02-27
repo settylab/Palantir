@@ -40,7 +40,10 @@ def mock_umap_df():
 
 @pytest.fixture
 def mock_tsne():
-    return pd.DataFrame({"x": np.random.rand(100), "y": np.random.rand(100)})
+    return pd.DataFrame(
+        {"x": np.random.rand(100), "y": np.random.rand(100)},
+        index=[f"cell_{i}" for i in range(100)]
+    )
 
 
 @pytest.fixture
@@ -70,12 +73,13 @@ def mock_dm_res():
 
 @pytest.fixture
 def mock_presults():
+    cell_index = [f"cell_{i}" for i in range(100)]
     return PResults(
-        pseudotime=pd.Series(np.random.rand(100)),
-        entropy=pd.Series(np.random.rand(100)),
+        pseudotime=pd.Series(np.random.rand(100), index=cell_index),
+        entropy=pd.Series(np.random.rand(100), index=cell_index),
         branch_probs=pd.DataFrame(
             np.random.rand(100, 3),
-            index=[f"cell_{i}" for i in range(100)],
+            index=cell_index,
         ),
         waypoints=None,
     )
@@ -515,12 +519,16 @@ def test_plot_stats_optional_parameters(mock_anndata):
 def test_plot_stats_masking(mock_anndata):
     # Create a condition here that you want to mask
     mask_condition = mock_anndata.obs["palantir_pseudotime"] > 0.5
-    mock_anndata.obsm["branch_masks"] = mask_condition
+    # Convert Series to DataFrame for compatibility with newer AnnData versions
+    mock_anndata.obsm["branch_masks"] = pd.DataFrame(
+        {"branch_mask": mask_condition}, index=mock_anndata.obs_names
+    )
     fig, ax = plot_stats(
         mock_anndata,
         x="palantir_pseudotime",
         y="palantir_entropy",
         masks_key="branch_masks",
+        branch_name="branch_mask",
     )
 
 

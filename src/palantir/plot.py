@@ -530,7 +530,7 @@ def plot_palantir_results(
         ax,
         embedding_data.iloc[:, 0],
         embedding_data.iloc[:, 1],
-        pr_res.pseudotime[embedding_data.index],
+        pr_res.pseudotime.loc[embedding_data.index],
         **kwargs,
     )
     ax.set_axis_off()
@@ -542,7 +542,7 @@ def plot_palantir_results(
         ax,
         embedding_data.iloc[:, 0],
         embedding_data.iloc[:, 1],
-        pr_res.entropy[embedding_data.index],
+        pr_res.entropy.loc[embedding_data.index],
         **kwargs,
     )
     ax.set_axis_off()
@@ -555,7 +555,7 @@ def plot_palantir_results(
             ax,
             embedding_data.iloc[:, 0],
             embedding_data.iloc[:, 1],
-            pr_res.branch_probs[branch][embedding_data.index],
+            pr_res.branch_probs.loc[embedding_data.index, branch],
             **kwargs,
         )
         ax.set_axis_off()

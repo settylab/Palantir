@@ -816,10 +816,10 @@ def early_cell(
 
     for dcomp in range(eigenvectors.shape[1]):
         ec = eigenvectors[:, dcomp].argmax()
-        if ad.obs[celltype_column][ec] == celltype:
+        if ad.obs[celltype_column].iloc[ec] == celltype:
             return _return_cell(ec, ad.obs_names, celltype, "max", dcomp)
         ec = eigenvectors[:, dcomp].argmin()
-        if ad.obs[celltype_column][ec] == celltype:
+        if ad.obs[celltype_column].iloc[ec] == celltype:
             return _return_cell(ec, ad.obs_names, celltype, "min", dcomp)
 
     if fallback_seed is not None:
@@ -871,7 +871,7 @@ def fallback_terminal_cell(
 
     """
     other_cells = ad.obs_names[ad.obs[celltype_column] != celltype]
-    fake_early_cell = other_cells.to_series().sample(1, random_state=seed)[0]
+    fake_early_cell = other_cells.to_series().sample(1, random_state=seed).iloc[0]
     pr_res = run_palantir(
         ad,
         fake_early_cell,
