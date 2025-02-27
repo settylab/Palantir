@@ -52,6 +52,10 @@ Release Notes
  * fix select_branch_cells division by zero error
  * add integration tests with sample data
  * add tests for cluster_gene_trends function
+ * fix compatibility issues with newer pandas versions
+ * update Series indexing to use .iloc[] or .loc[] instead of [] syntax
+ * improve tests to handle differences between pandas versions
+ * increase test coverage to 84%
 
  ### Version 1.3.2
  * require `python>=3.8`
