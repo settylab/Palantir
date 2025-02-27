@@ -39,6 +39,6 @@ jobs:
       env:
         PYTHONPATH: ./src/
       run: |
-        coverage run --source=src/palantir/ -m pytest tests/*.py
+        python -m pytest --cov=src/palantir
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v3
