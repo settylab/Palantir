@@ -1,28 +1,9 @@
 import pytest
 import pandas as pd
-import scanpy as sc
 import numpy as np
 
 from palantir.presults import PResults
 from palantir.core import run_palantir
-
-
-@pytest.fixture
-def mock_data():
-    n_cells = 50
-    n_genes = 10
-    return pd.DataFrame(
-        np.random.rand(n_cells, n_genes),
-        columns=[f"gene_{i}" for i in range(n_genes)],
-        index=[f"cell_{i}" for i in range(n_cells)],
-    )
-
-
-@pytest.fixture
-def mock_anndata(mock_data):
-    ad = sc.AnnData(X=mock_data)
-    ad.obsm["DM_EigenVectors_multiscaled"] = mock_data
-    return ad
 
 
 # Test with basic DataFrame input
