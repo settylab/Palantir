@@ -45,6 +45,14 @@ ____
 
 Release Notes
 -------------
+ ### Version 1.3.3
+ * removed redundant version specification in version.py
+ * use importlib.metadata to get version from package metadata
+ * fix branch selection algorithm for small datasets
+ * fix select_branch_cells division by zero error
+ * add integration tests with sample data
+ * add tests for cluster_gene_trends function
+
  ### Version 1.3.2
  * require `python>=3.8`
  * implement CI for testing
