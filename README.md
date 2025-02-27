@@ -60,13 +60,13 @@ Release Notes
  ### Version 1.3.2
  * require `python>=3.8`
  * implement CI for testing
- * fixes for edge cases discoverd through extended testing
+ * fixes for edge cases discovered through extended testing
  * implement `plot_trajectory` function to show trajectory on the umap
- * scale pseudotime to unit intervall in anndata
+ * scale pseudotime to unit interval in anndata
 
  ### Version 1.3.1
- * implemented `palantir.plot.plot_stats` to plot arbitray cell-wise statistics as x-/y-positions.
- * reduce memory usgae of `palantir.presults.compute_gene_trends`
+ * implemented `palantir.plot.plot_stats` to plot arbitrary cell-wise statistics as x-/y-positions.
+ * reduce memory usage of `palantir.presults.compute_gene_trends`
  * removed seaborn dependency
  * refactor `run_diffusion_maps` to split out `compute_kernel` and `diffusion_maps_from_kernel`
  * remove unused dependencies `tables`, `Cython`, `cmake`, and `tzlocal`.
@@ -77,7 +77,7 @@ Release Notes
  #### New Features
  * Enable an AnnData-centric workflow for improved usability and interoperability with other single-cell analysis tools.
  * Introduced new utility functions
-     * `palantir.utils.early_cell` To automate fining an early cell based on cell type and diffusion components.
+     * `palantir.utils.early_cell` To automate finding an early cell based on cell type and diffusion components.
      * `palantir.utils.find_terminal_states` To automate finding terminal cell states based on cell type and diffusion components.
      * `palantir.presults.select_branch_cells` To find cells associated to each branch based on fate probability.
      * `palantir.plot.plot_branch_selection` To inspect the cell to branch association.
@@ -85,20 +85,20 @@ Release Notes
      * `palantir.utils.run_density` A wrapper for [mellon.DensityEstimator](https://mellon.readthedocs.io/en/latest/model.html#mellon.model.DensityEstimator).
      * `palantir.utils.run_density_evaluation` Evaluate computed density on a different dataset.
      * `palantir.utils.run_low_density_variability`. To aggregate local gene expression variability in low density.
-     * `palantir.plot.plot_branch`. To plot branch-selected cells over pseudotime in arbitrary y-postion and coloring.
-     * `palantir.plot.plot_trend`. To plot the gene trend ontop of `palantir.plot.plot_branch`.
+     * `palantir.plot.plot_branch`. To plot branch-selected cells over pseudotime in arbitrary y-position and coloring.
+     * `palantir.plot.plot_trend`. To plot the gene trend on top of `palantir.plot.plot_branch`.
  * Added input validation for better error handling and improved user experience.
  * Expanded documentation within docstrings, providing additional clarity for users and developers.
 
  #### Enhancements
  * Updated tutorial notebook to reflect the new workflow, guiding users through the updated processes.
  * Implemented gene trend computation using [Mellon](https://github.com/settylab/Mellon), providing more robust and efficient gene trend analysis.
- * Enable annotation in `palantir.plot.highight_cells_on_umap`.
+ * Enable annotation in `palantir.plot.highlight_cells_on_umap`.
 
  #### Changes
  * Replaced PhenoGraph dependency with `scanpy.tl.leiden` for gene trend clustering.
- * Deprecated the `run_tsne`, `determine_cell_clusters`, and `plot_cell_clusters` functions. Use corresponding implementations from [Scanpy](https://scanpy.readthedocs.io/en/stable/), widely used single-cell analysis library and direct dependecy of Palantir.
- * Rename `palantir.plot.highight_cells_on_tsne` to `palantir.plot.highight_cells_on_umap`
+ * Deprecated the `run_tsne`, `determine_cell_clusters`, and `plot_cell_clusters` functions. Use corresponding implementations from [Scanpy](https://scanpy.readthedocs.io/en/stable/), widely used single-cell analysis library and direct dependency of Palantir.
+ * Rename `palantir.plot.highlight_cells_on_tsne` to `palantir.plot.highlight_cells_on_umap`
  * Depend on `anndata>=0.8.0` to avoid issues writing dataframes in `ad.obsm`.
 
  #### Fixes
