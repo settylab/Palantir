@@ -32,9 +32,7 @@ def test_gam_fit_predict():
     spline_order = 2
 
     # Call the function
-    y_pred, stds = palantir.presults.gam_fit_predict(
-        x, y, weights, pred_x, n_splines, spline_order
-    )
+    y_pred, stds = palantir.presults.gam_fit_predict(x, y, weights, pred_x, n_splines, spline_order)
 
     # Asserts to check the output
     assert isinstance(y_pred, np.ndarray)

@@ -58,9 +58,7 @@ def from_10x(data_dir, use_ensemble_id=True):
         gene_names = [gene[1] for gene in gene_names]
     cell_names = np.loadtxt(filename_cells, delimiter="\t", dtype=bytes).astype(str)
 
-    dataMatrix = pd.DataFrame(
-        dataMatrix.todense(), columns=cell_names, index=gene_names
-    )
+    dataMatrix = pd.DataFrame(dataMatrix.todense(), columns=cell_names, index=gene_names)
 
     # combine duplicate genes
     if not use_ensemble_id:

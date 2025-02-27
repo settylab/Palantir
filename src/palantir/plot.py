@@ -1,4 +1,4 @@
-from typing import Union, Optional, List, Tuple, Dict, Literal, Sequence
+from typing import Union, Optional, List, Tuple, Dict, Literal, Sequence, Callable, Any
 import collections.abc as cabc
 import warnings
 from copy import copy
@@ -16,16 +16,168 @@ import matplotlib.patheffects as PathEffects
 from matplotlib.colors import Normalize, Colormap
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-from scanpy.plotting._tools.scatterplots import (
-    _get_color_source_vector,
-    _color_vector,
-    _get_vboundnorm,
-    _get_palette,
-    _FontSize,
-    _FontWeight,
-    VBound,
-)
-from scanpy.plotting._utils import check_colornorm
+# Define type aliases and helper functions to ensure compatibility with all scanpy versions
+_FontWeight = Literal["light", "normal", "medium", "semibold", "bold", "heavy", "black"]
+_FontSize = Literal["xx-small", "x-small", "small", "medium", "large", "x-large", "xx-large"]
+VBound = Union[str, float, Callable[..., Any]]
+
+
+def check_colornorm(
+    vmin: Optional[float] = None,
+    vmax: Optional[float] = None,
+    vcenter: Optional[float] = None,
+    norm: Optional[Normalize] = None,
+) -> Normalize:
+    """
+    Checks and returns a matplotlib Normalize object for color mapping.
+    """
+    if norm is not None:
+        return norm
+
+    import matplotlib.colors as colors
+
+    if vcenter is not None:
+        return colors.TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
+    else:
+        return colors.Normalize(vmin=vmin, vmax=vmax)
+
+
+def _get_vboundnorm(vmin, vmax, vcenter, norm, index, array):
+    """Get normalized values for colorbar."""
+    import numpy as np
+
+    if isinstance(array, pd.Series) and array.isna().any():
+        array = array.dropna()
+
+    if len(array) == 0:
+        vmin_float = vmax_float = vcenter_float = 0
+        norm_obj = None
+    else:
+        if vmin is None or vmin[index] is None:
+            vmin_float = np.nanmin(array)
+        else:
+            vmin_value = vmin[index]
+            if isinstance(vmin_value, str) and vmin_value.startswith("p"):
+                vmin_float = np.nanpercentile(array, float(vmin_value[1:]))
+            elif callable(vmin_value):
+                vmin_float = vmin_value(array)
+            else:
+                vmin_float = vmin_value
+
+        if vmax is None or vmax[index] is None:
+            vmax_float = np.nanmax(array)
+        else:
+            vmax_value = vmax[index]
+            if isinstance(vmax_value, str) and vmax_value.startswith("p"):
+                vmax_float = np.nanpercentile(array, float(vmax_value[1:]))
+            elif callable(vmax_value):
+                vmax_float = vmax_value(array)
+            else:
+                vmax_float = vmax_value
+
+        if vcenter is None or vcenter[index] is None:
+            vcenter_float = None
+        else:
+            vcenter_value = vcenter[index]
+            if isinstance(vcenter_value, str) and vcenter_value.startswith("p"):
+                vcenter_float = np.nanpercentile(array, float(vcenter_value[1:]))
+            elif callable(vcenter_value):
+                vcenter_float = vcenter_value(array)
+            else:
+                vcenter_float = vcenter_value
+
+        norm_obj = norm[index] if norm is not None else None
+
+    return vmin_float, vmax_float, vcenter_float, norm_obj
+
+
+def _get_palette(ad, key):
+    """Get a color palette for categorical data."""
+    if key + "_colors" in ad.uns:
+        palette = {
+            cat: color for cat, color in zip(ad.obs[key].cat.categories, ad.uns[key + "_colors"])
+        }
+    elif isinstance(ad.obs[key].dtype, pd.CategoricalDtype):
+        # Create default colors
+        set2_colors = matplotlib.colormaps["Set2"](range(len(ad.obs[key].cat.categories)))
+        palette = {
+            cat: matplotlib.colors.rgb2hex(rgba)
+            for cat, rgba in zip(ad.obs[key].cat.categories, set2_colors)
+        }
+    else:
+        # Default empty palette
+        palette = {}
+    return palette
+
+
+def _get_color_source_vector(ad, color_key, layer=None):
+    """Get the color source vector from an AnnData object."""
+    if color_key is None:
+        return pd.Series(np.ones(ad.n_obs), index=ad.obs_names)
+
+    if color_key in ad.obs:
+        return ad.obs[color_key]
+    elif color_key in ad.var_names:
+        if layer is not None and layer in ad.layers:
+            values = (
+                ad[:, color_key].layers[layer].toarray().flatten()
+                if hasattr(ad[:, color_key].layers[layer], "toarray")
+                else ad[:, color_key].layers[layer].flatten()
+            )
+        else:
+            values = (
+                ad[:, color_key].X.toarray().flatten()
+                if hasattr(ad[:, color_key].X, "toarray")
+                else ad[:, color_key].X.flatten()
+            )
+        return pd.Series(values, index=ad.obs_names)
+    else:
+        raise KeyError(f"'{color_key}' not found in .obs or .var_names")
+
+
+def _color_vector(ad, color_key, values=None, palette=None, na_color="lightgray"):
+    """Create a color vector for plotting."""
+    if values is None and color_key is None:
+        return pd.Series(np.ones(ad.n_obs), index=ad.obs_names), False
+
+    if values is None:
+        values = _get_color_source_vector(ad, color_key)
+
+    # Determine if categorical
+    is_categorical = False
+    if isinstance(values, pd.Series):
+        if values.dtype == bool or isinstance(values.dtype, pd.CategoricalDtype):
+            is_categorical = True
+        elif pd.api.types.is_numeric_dtype(values.dtype):
+            is_categorical = False
+        else:
+            is_categorical = True
+
+    # For categorical data, convert to colors
+    if is_categorical:
+        legend_palette = _get_palette(ad, color_key) if color_key in ad.obs else {}
+        if not legend_palette and palette is not None:
+            if isinstance(palette, str):
+                # Use a named palette
+                cmap = matplotlib.colormaps[palette]
+                unique_vals = sorted(values.unique())
+                colors = cmap(np.linspace(0, 1, len(unique_vals)))
+                legend_palette = {
+                    val: matplotlib.colors.rgb2hex(color) for val, color in zip(unique_vals, colors)
+                }
+            elif isinstance(palette, dict):
+                legend_palette = palette
+
+        # Convert categories to colors
+        if legend_palette:
+            color_vector = values.map(legend_palette).fillna(na_color)
+        else:
+            # Default to grayscale
+            color_vector = values.map(lambda x: na_color if pd.isna(x) else "gray")
+    else:
+        color_vector = values
+
+    return color_vector, is_categorical
 
 
 from .presults import PResults
@@ -218,9 +370,7 @@ def highlight_cells_on_umap(
     if isinstance(data, sc.AnnData):
         if embedding_basis not in data.obsm:
             raise KeyError(f"'{embedding_basis}' not found in .obsm.")
-        umap = pd.DataFrame(
-            data.obsm[embedding_basis], index=data.obs_names, columns=["x", "y"]
-        )
+        umap = pd.DataFrame(data.obsm[embedding_basis], index=data.obs_names, columns=["x", "y"])
     elif isinstance(data, pd.DataFrame):
         umap = data.copy()
     else:
@@ -424,9 +574,7 @@ def plot_diffusion_components(
         if isinstance(dm_res, str):
             if dm_res not in data.obsm:
                 raise KeyError(f"'{dm_res}' not found in .obsm.")
-            dm_res = {
-                "EigenVectors": pd.DataFrame(data.obsm[dm_res], index=data.obs_names)
-            }
+            dm_res = {"EigenVectors": pd.DataFrame(data.obsm[dm_res], index=data.obs_names)}
     else:
         embedding_data = data
 
@@ -984,12 +1132,12 @@ def _add_categorical_legend(
         # For numpy arrays or other types
         if color_source_vector.dtype == bool:
             # For boolean arrays
-            cats = ['True', 'False']
+            cats = ["True", "False"]
         elif na_in_legend and pd.isnull(color_source_vector).any():
             # Create categorical data with NA values
             color_categorical = pd.Categorical(color_source_vector)
             unique_values = [v for v in pd.unique(color_categorical) if not pd.isnull(v)]
-            cats = list(unique_values) + ['NA']
+            cats = list(unique_values) + ["NA"]
             palette = palette.copy()
             palette["NA"] = na_color
         else:
@@ -1138,9 +1286,7 @@ def plot_stats(
 
     if branch_name is not None:
         mask = (
-            _process_mask(ad, masks_key, branch_name)
-            if isinstance(masks_key, str)
-            else masks_key
+            _process_mask(ad, masks_key, branch_name) if isinstance(masks_key, str) else masks_key
         )
     else:
         mask = None
@@ -1214,16 +1360,24 @@ def plot_stats(
     if categorical or color_vector.dtype == bool:
         if color is not None:
             # Check if the color column is categorical, if not, don't try to use _get_palette
-            if isinstance(ad.obs.get(color), pd.Series) and isinstance(ad.obs[color].dtype, pd.CategoricalDtype):
+            if isinstance(ad.obs.get(color), pd.Series) and isinstance(
+                ad.obs[color].dtype, pd.CategoricalDtype
+            ):
                 legend_palette = _get_palette(ad, color)
             else:
                 # Use a default palette for non-categorical data
                 set2_colors = matplotlib.colormaps["Set2"](range(10))
-                legend_palette = {i: matplotlib.colors.rgb2hex(rgba) for i, rgba in enumerate(set2_colors)}
+                legend_palette = {
+                    i: matplotlib.colors.rgb2hex(rgba) for i, rgba in enumerate(set2_colors)
+                }
         else:
             # Default palette for when color is None
-            legend_palette = {True: config.SELECTED_COLOR, False: config.DESELECTED_COLOR} if color_vector.dtype == bool else {}
-            
+            legend_palette = (
+                {True: config.SELECTED_COLOR, False: config.DESELECTED_COLOR}
+                if color_vector.dtype == bool
+                else {}
+            )
+
         _add_categorical_legend(
             ax,
             color_source_vector,
@@ -1736,13 +1890,9 @@ def plot_gene_trend_clusters(
     # Process inputs and standardize trends
     if isinstance(data, sc.AnnData):
         if gene_trend_key is None:
-            raise KeyError(
-                "Must provide a gene_trend_key when data is an AnnData object."
-            )
+            raise KeyError("Must provide a gene_trend_key when data is an AnnData object.")
 
-        trends, pseudotimes = _validate_varm_key(
-            data, gene_trend_key + "_" + branch_name
-        )
+        trends, pseudotimes = _validate_varm_key(data, gene_trend_key + "_" + branch_name)
 
         if clusters is None:
             clusters = gene_trend_key + "_clusters"
@@ -1758,11 +1908,12 @@ def plot_gene_trend_clusters(
     )
 
     # Obtain unique clusters and prepare figure
-    cluster_labels = (
-        clusters.cat.categories
-        if pd.api.types.is_categorical_dtype(clusters)
-        else set(clusters)
-    )
+    if pd.api.types.is_categorical_dtype(clusters):
+        cluster_labels = clusters.cat.categories
+    else:
+        # Filter out NaN values to avoid issues with np.NaN vs np.nan
+        cluster_labels = set([x for x in clusters if not pd.isna(x)])
+
     n_rows = int(np.ceil(len(cluster_labels) / 3))
     fig = plt.figure(figsize=[5.5 * 3, 2.5 * n_rows])
 
@@ -1900,9 +2051,7 @@ def gene_score_histogram(
             horizontalalignment="center",
             zorder=-k,
         )
-        txt.set_path_effects(
-            [PathEffects.withStroke(linewidth=2, foreground="w", alpha=0.8)]
-        )
+        txt.set_path_effects([PathEffects.withStroke(linewidth=2, foreground="w", alpha=0.8)])
 
     return fig
 
@@ -1987,11 +2136,7 @@ def plot_trajectory(
 
     pseudotime = pt[mask]
     pseudotime_grid = np.linspace(np.min(pseudotime), np.max(pseudotime), 200)
-    ls = (
-        smoothness
-        * np.sqrt(np.sum((np.max(umap, axis=0) - np.min(umap, axis=0)) ** 2))
-        / 20
-    )
+    ls = smoothness * np.sqrt(np.sum((np.max(umap, axis=0) - np.min(umap, axis=0)) ** 2)) / 20
     umap_est = mellon.FunctionEstimator(ls=ls, sigma=ls, n_landmarks=50)
     umap_trajectory = umap_est.fit_predict(pseudotime, umap[mask, :], pseudotime_grid)
 

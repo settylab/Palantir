@@ -227,9 +227,7 @@ def run_density(
     log_density = np.asarray(dest.fit_predict(X))
 
     ad.obs[density_key] = log_density
-    ad.obs[density_key + "_clipped"] = np.clip(
-        log_density, *np.quantile(log_density, [0.01, 1])
-    )
+    ad.obs[density_key + "_clipped"] = np.clip(log_density, *np.quantile(log_density, [0.01, 1]))
     ad.uns[density_key + "_predictor"] = dest.predict.to_dict()
 
     return log_density
@@ -339,9 +337,7 @@ def compute_kernel(
     adaptive_k = int(np.floor(knn / 3))
     adaptive_std = np.zeros(N)
     for i in np.arange(N):
-        adaptive_std[i] = np.sort(kNN.data[kNN.indptr[i] : kNN.indptr[i + 1]])[
-            adaptive_k - 1
-        ]
+        adaptive_std[i] = np.sort(kNN.data[kNN.indptr[i] : kNN.indptr[i + 1]])[adaptive_k - 1]
 
     x, y, dists = find(kNN)
     dists /= adaptive_std[x]
@@ -604,9 +600,7 @@ def run_magic_imputation(
     if isinstance(data, sc.AnnData):
         if expression_key is not None:
             if expression_key not in data.layers.keys():
-                raise ValueError(
-                    f"expression_key '{expression_key}' not found in .layers."
-                )
+                raise ValueError(f"expression_key '{expression_key}' not found in .layers.")
             X = data.layers[expression_key]
         else:
             X = data.X
@@ -654,9 +648,7 @@ def run_magic_imputation(
         data.layers[imputation_key] = np.asarray(imputed_data)
 
     if isinstance(data, pd.DataFrame):
-        imputed_data = pd.DataFrame(
-            imputed_data, index=data.index, columns=data.columns
-        )
+        imputed_data = pd.DataFrame(imputed_data, index=data.index, columns=data.columns)
 
     return imputed_data
 
@@ -799,17 +791,13 @@ def early_cell(
         raise ValueError(f"celltype_column='{celltype_column}' should be a string")
 
     if celltype_column not in ad.obs.columns:
-        raise ValueError(
-            f"celltype_column='{celltype_column}' should be a column of ad.obs."
-        )
+        raise ValueError(f"celltype_column='{celltype_column}' should be a column of ad.obs.")
 
     if not isinstance(celltype, str):
         raise ValueError("celltype should be a string")
 
     if celltype not in ad.obs[celltype_column].values:
-        raise ValueError(
-            f"Celltype '{celltype}' not found in ad.obs['{celltype_column}']."
-        )
+        raise ValueError(f"Celltype '{celltype}' not found in ad.obs['{celltype_column}'].")
 
     if fallback_seed is not None and not isinstance(fallback_seed, int):
         raise ValueError("'fallback_seed' should be an integer")

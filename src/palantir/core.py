@@ -1,6 +1,7 @@
 """
 Core functions for running Palantir
 """
+
 from typing import Union, Optional, List, Dict
 import numpy as np
 import pandas as pd
@@ -26,9 +27,7 @@ import warnings
 from . import config
 
 warnings.filterwarnings(action="ignore", message="scipy.cluster")
-warnings.filterwarnings(
-    action="ignore", module="scipy", message="Changing the sparsity"
-)
+warnings.filterwarnings(action="ignore", module="scipy", message="Changing the sparsity")
 
 
 def run_palantir(
@@ -153,9 +152,7 @@ def run_palantir(
 
     # pseudotime and weighting matrix
     print("Determining pseudotime...")
-    pseudotime, W = _compute_pseudotime(
-        data_df, start_cell, knn, waypoints, n_jobs, max_iterations
-    )
+    pseudotime, W = _compute_pseudotime(data_df, start_cell, knn, waypoints, n_jobs, max_iterations)
 
     # Entropy and branch probabilities
     print("Entropy and branch probabilities...")
@@ -255,9 +252,7 @@ def _compute_pseudotime(data, start_cell, knn, waypoints, n_jobs, max_iterations
     # Shortest path distances to determine trajectories
     print("Shortest path distances using {}-nearest neighbor graph...".format(knn))
     start = time.time()
-    nbrs = NearestNeighbors(n_neighbors=knn, metric="euclidean", n_jobs=n_jobs).fit(
-        data
-    )
+    nbrs = NearestNeighbors(n_neighbors=knn, metric="euclidean", n_jobs=n_jobs).fit(data)
     adj = nbrs.kneighbors_graph(data, mode="distance")
 
     # Connect graph if it is disconnected
@@ -272,9 +267,7 @@ def _compute_pseudotime(data, start_cell, knn, waypoints, n_jobs, max_iterations
     # Convert to distance matrix
     D = pd.DataFrame(0.0, index=waypoints, columns=data.index)
     for i, cell in enumerate(waypoints):
-        D.loc[cell, :] = pd.Series(
-            np.ravel(dists[i]), index=data.index[dists[i].index]
-        )[data.index]
+        D.loc[cell, :] = pd.Series(np.ravel(dists[i]), index=data.index[dists[i].index])[data.index]
     end = time.time()
     print("Time for shortest paths: {} minutes".format((end - start) / 60))
 
@@ -360,9 +353,7 @@ def identify_terminal_states(
     waypoints = pd.Index([start_cell]).append(waypoints)
 
     # Distance to start cell as pseudo pseudotime
-    pseudotime, _ = _compute_pseudotime(
-        data, start_cell, knn, waypoints, n_jobs, max_iterations
-    )
+    pseudotime, _ = _compute_pseudotime(data, start_cell, knn, waypoints, n_jobs, max_iterations)
 
     # Markov chain
     wp_data = data.loc[waypoints, :]
@@ -373,9 +364,7 @@ def identify_terminal_states(
 
     # Excluded diffusion map boundaries
     dm_boundaries = pd.Index(set(wp_data.idxmax()).union(wp_data.idxmin()))
-    excluded_boundaries = dm_boundaries.difference(terminal_states).difference(
-        [start_cell]
-    )
+    excluded_boundaries = dm_boundaries.difference(terminal_states).difference([start_cell])
     return terminal_states, excluded_boundaries
 
 
@@ -386,9 +375,7 @@ def _construct_markov_chain(wp_data, knn, pseudotime, n_jobs):
 
     # kNN graph
     n_neighbors = knn
-    nbrs = NearestNeighbors(
-        n_neighbors=n_neighbors, metric="euclidean", n_jobs=n_jobs
-    ).fit(wp_data)
+    nbrs = NearestNeighbors(n_neighbors=n_neighbors, metric="euclidean", n_jobs=n_jobs).fit(wp_data)
     kNN = nbrs.kneighbors_graph(wp_data, mode="distance")
     dist, ind = nbrs.kneighbors(wp_data)
 
@@ -399,17 +386,13 @@ def _construct_markov_chain(wp_data, knn, pseudotime, n_jobs):
     # Directed graph construction
     # pseudotime position of all the neighbors
     traj_nbrs = pd.DataFrame(
-        pseudotime[np.ravel(waypoints.values[ind])].values.reshape(
-            [len(waypoints), n_neighbors]
-        ),
+        pseudotime[np.ravel(waypoints.values[ind])].values.reshape([len(waypoints), n_neighbors]),
         index=waypoints,
     )
 
     # Remove edges that move backwards in pseudotime except for edges that are within
     # the computed standard deviation
-    rem_edges = traj_nbrs.apply(
-        lambda x: x < pseudotime[traj_nbrs.index] - adaptive_std
-    )
+    rem_edges = traj_nbrs.apply(lambda x: x < pseudotime[traj_nbrs.index] - adaptive_std)
     rem_edges = rem_edges.stack()[rem_edges.stack()]
 
     # Determine the indices and update adjacency matrix
@@ -421,10 +404,7 @@ def _construct_markov_chain(wp_data, knn, pseudotime, n_jobs):
 
     # Affinity matrix and markov chain
     x, y, z = find(kNN)
-    aff = np.exp(
-        -(z**2) / (adaptive_std[x] ** 2) * 0.5
-        - (z**2) / (adaptive_std[y] ** 2) * 0.5
-    )
+    aff = np.exp(-(z**2) / (adaptive_std[x] ** 2) * 0.5 - (z**2) / (adaptive_std[y] ** 2) * 0.5)
     W = csr_matrix((aff, (x, y)), [len(waypoints), len(waypoints)])
 
     # Transition matrix
@@ -569,9 +549,7 @@ def _connect_graph(adj, data, start_cell):
             data.iloc[farthest_reachable, :].values.reshape(1, -1),
             data.loc[unreachable_nodes, :],
         )
-        unreachable_dists = pd.Series(
-            np.ravel(unreachable_dists), index=unreachable_nodes
-        )
+        unreachable_dists = pd.Series(np.ravel(unreachable_dists), index=unreachable_nodes)
 
         # Add edge between farthest reacheable and its nearest unreachable
         add_edge = np.where(data.index == unreachable_dists.idxmin())[0][0]

@@ -29,31 +29,38 @@ from palantir.plot import (
 )
 from palantir.presults import PResults
 
+
 # Fixtures for the UMAP DataFrame
 @pytest.fixture
 def mock_umap_df():
+    cell_index = [f"cell_{i}" for i in range(100)]
     return pd.DataFrame(
         {"x": np.random.rand(100), "y": np.random.rand(100)},
-        index=[f"cell_{i}" for i in range(100)],
+        index=cell_index,
     )
 
 
 @pytest.fixture
 def mock_tsne():
+    cell_index = [f"cell_{i}" for i in range(100)]
     return pd.DataFrame(
         {"x": np.random.rand(100), "y": np.random.rand(100)},
-        index=[f"cell_{i}" for i in range(100)]
+        index=cell_index,
     )
 
 
 @pytest.fixture
 def mock_data():
-    return pd.DataFrame(np.random.rand(100, 20))
+    cell_index = [f"cell_{i}" for i in range(100)]
+    return pd.DataFrame(
+        np.random.rand(100, 20), index=cell_index, columns=[f"col_{i}" for i in range(20)]
+    )
 
 
 @pytest.fixture
 def mock_clusters():
-    return pd.Series(["Cluster_1"] * 50 + ["Cluster_2"] * 50)
+    cell_index = [f"cell_{i}" for i in range(100)]
+    return pd.Series(["Cluster_1"] * 50 + ["Cluster_2"] * 50, index=cell_index)
 
 
 @pytest.fixture
@@ -63,12 +70,18 @@ def mock_cluster_colors():
 
 @pytest.fixture
 def mock_gene_data():
-    return pd.DataFrame(np.random.rand(100, 5), columns=[f"gene_{i}" for i in range(5)])
+    cell_index = [f"cell_{i}" for i in range(100)]
+    return pd.DataFrame(
+        np.random.rand(100, 5), columns=[f"gene_{i}" for i in range(5)], index=cell_index
+    )
 
 
 @pytest.fixture
 def mock_dm_res():
-    return pd.DataFrame(np.random.rand(100, 3))
+    cell_index = [f"cell_{i}" for i in range(100)]
+    return pd.DataFrame(
+        np.random.rand(100, 3), index=cell_index, columns=[f"component_{i}" for i in range(3)]
+    )
 
 
 @pytest.fixture
@@ -78,8 +91,7 @@ def mock_presults():
         pseudotime=pd.Series(np.random.rand(100), index=cell_index),
         entropy=pd.Series(np.random.rand(100), index=cell_index),
         branch_probs=pd.DataFrame(
-            np.random.rand(100, 3),
-            index=cell_index,
+            np.random.rand(100, 3), index=cell_index, columns=["a", "b", "c"]
         ),
         waypoints=None,
     )
@@ -115,36 +127,53 @@ def mock_gene_trends():
 # Fixtures for AnnData object
 @pytest.fixture
 def mock_anndata(mock_umap_df):
-    adata = sc.AnnData(X=np.random.randn(100, 5))
-    adata.obs_names = mock_umap_df.index
-    adata.var_names = [f"gene_{i}" for i in range(5)]
-    adata.obs["palantir_pseudotime"] = np.random.rand(100)
-    adata.obs["palantir_entropy"] = np.random.rand(100)
-    adata.obsm["X_umap"] = mock_umap_df.values
-    adata.obsm["DM_EigenVectors"] = np.random.randn(100, 3)
+    cell_index = mock_umap_df.index
+    gene_names = [f"gene_{i}" for i in range(5)]
+
+    adata = sc.AnnData(
+        X=np.random.randn(100, 5),
+        obs=pd.DataFrame(index=cell_index),
+        var=pd.DataFrame(index=gene_names),
+    )
+
+    # Add observation data
+    adata.obs["palantir_pseudotime"] = pd.Series(np.random.rand(100), index=cell_index)
+    adata.obs["palantir_entropy"] = pd.Series(np.random.rand(100), index=cell_index)
+
+    # Add obsm data
+    adata.obsm["X_umap"] = mock_umap_df[["x", "y"]].values
+    adata.obsm["DM_EigenVectors"] = pd.DataFrame(np.random.randn(100, 3), index=cell_index).values
+
+    # Add obsm dataframes
     adata.obsm["palantir_fate_probabilities"] = pd.DataFrame(
-        np.random.randn(100, 3),
+        np.random.rand(100, 3),
         columns=["a", "b", "c"],
-        index=mock_umap_df.index,
+        index=cell_index,
     )
     adata.obsm["branch_masks"] = pd.DataFrame(
         np.random.randint(2, size=(100, 3)),
         columns=["a", "b", "c"],
-        index=mock_umap_df.index,
+        index=cell_index,
         dtype=bool,
     )
+
+    # Add trend data
     for branch in ["a", "b", "c"]:
-        adata.uns[f"gene_trends_{branch}_pseudotime"] = np.linspace(0, 1, 10)
+        pseudotime_values = np.linspace(0, 1, 10)
+        adata.uns[f"gene_trends_{branch}_pseudotime"] = pseudotime_values
         adata.varm[f"gene_trends_{branch}"] = pd.DataFrame(
             np.random.rand(5, 10),
-            index=adata.var_names,
-            columns=adata.uns[f"gene_trends_{branch}_pseudotime"],
+            index=gene_names,
+            columns=pseudotime_values,
         )
+
+    # Add var data
     adata.var["clusters"] = pd.Series(
         ["A", "A", "B", "B", "B"],
-        index=adata.var_names,
+        index=gene_names,
     )
-    adata.var["gene_score"] = np.random.rand(5)
+    adata.var["gene_score"] = pd.Series(np.random.rand(5), index=gene_names)
+
     return adata
 
 
@@ -196,9 +225,7 @@ def test_cell_types_custom_colors(mock_tsne, mock_clusters, mock_cluster_colors)
     assert len(axs) == 2, "Number of axes should match number of clusters"
 
     # Check if colors match
-    colors = pd.Series(
-        sc.get_edgecolor() for ax in axs.values() for sc in ax.collections
-    )
+    colors = pd.Series(sc.get_edgecolor() for ax in axs.values() for sc in ax.collections)
     colors = set(colors.apply(matplotlib.colors.to_rgba))
     expected_colors = set(mock_cluster_colors.apply(matplotlib.colors.to_rgba))
     expected_colors.add(matplotlib.colors.to_rgba("lightgrey"))
@@ -216,9 +243,7 @@ def test_cell_types_n_cols(mock_tsne, mock_clusters):
 def test_highlight_cells_on_umap(mock_anndata, mock_umap_df):
     # Test KeyError
     with pytest.raises(KeyError):
-        highlight_cells_on_umap(
-            mock_anndata, ["cell_1"], embedding_basis="unknown_basis"
-        )
+        highlight_cells_on_umap(mock_anndata, ["cell_1"], embedding_basis="unknown_basis")
 
     # Test TypeError for data
     with pytest.raises(TypeError):
@@ -239,9 +264,7 @@ def test_highlight_cells_on_umap(mock_anndata, mock_umap_df):
     assert isinstance(ax, plt.Axes)
 
     # Test with different types for cells parameter
-    fig, ax = highlight_cells_on_umap(
-        mock_anndata, {"cell_1": "label1", "cell_2": "label2"}
-    )
+    fig, ax = highlight_cells_on_umap(mock_anndata, {"cell_1": "label1", "cell_2": "label2"})
     assert isinstance(fig, plt.Figure)
     assert isinstance(ax, plt.Axes)
 
@@ -305,7 +328,11 @@ def test_plot_diffusion_components_with_anndata(mock_anndata, mock_dm_res):
 
 
 def test_plot_diffusion_components_with_dataframe(mock_tsne, mock_dm_res):
-    dm_res_dict = {"EigenVectors": mock_dm_res}
+    # Create a new dm_res dataframe with numeric column names to match what the function expects
+    mock_dm_res_numeric = mock_dm_res.copy()
+    mock_dm_res_numeric.columns = list(range(len(mock_dm_res_numeric.columns)))
+
+    dm_res_dict = {"EigenVectors": mock_dm_res_numeric}
     fig, axs = plot_diffusion_components(mock_tsne, dm_res=dm_res_dict)
     assert isinstance(fig, plt.Figure)
     for ax in axs.values():
@@ -325,9 +352,7 @@ def test_plot_diffusion_components_key_error_dm_res(mock_anndata):
 def test_plot_diffusion_components_default_args(mock_anndata):
     fig, axs = plot_diffusion_components(mock_anndata)
     for ax in axs.values():
-        assert (
-            ax.collections[0].get_array().data.shape[0] == 100
-        )  # Checking data points
+        assert ax.collections[0].get_array().data.shape[0] == 100  # Checking data points
 
 
 def test_plot_diffusion_components_custom_args(mock_anndata):
@@ -490,9 +515,7 @@ def test_plot_gene_trends_invalid_data_type():
 # Test 6: Error Handling - Missing Key
 def test_plot_gene_trends_missing_key(mock_anndata):
     with pytest.raises(KeyError):
-        plot_gene_trends(
-            mock_anndata, gene_trend_key="missing_key", branch_names="missing_branch"
-        )
+        plot_gene_trends(mock_anndata, gene_trend_key="missing_key", branch_names="missing_branch")
 
 
 @pytest.mark.parametrize("wrong_type", [123, True, 1.23, "unknown_key"])
@@ -519,10 +542,12 @@ def test_plot_stats_optional_parameters(mock_anndata):
 def test_plot_stats_masking(mock_anndata):
     # Create a condition here that you want to mask
     mask_condition = mock_anndata.obs["palantir_pseudotime"] > 0.5
-    # Convert Series to DataFrame for compatibility with newer AnnData versions
-    mock_anndata.obsm["branch_masks"] = pd.DataFrame(
-        {"branch_mask": mask_condition}, index=mock_anndata.obs_names
-    )
+
+    # Update the branch_masks DataFrame with a new column
+    branch_masks = mock_anndata.obsm["branch_masks"].copy()
+    branch_masks["branch_mask"] = mask_condition.values
+    mock_anndata.obsm["branch_masks"] = branch_masks
+
     fig, ax = plot_stats(
         mock_anndata,
         x="palantir_pseudotime",
@@ -545,13 +570,9 @@ def test_plot_branch_input_validation(
 ):
     if should_fail:
         with pytest.raises((TypeError, ValueError)):
-            plot_branch(
-                mock_anndata, branch_name, position, pseudo_time_key=pseudo_time_key
-            )
+            plot_branch(mock_anndata, branch_name, position, pseudo_time_key=pseudo_time_key)
     else:
-        plot_branch(
-            mock_anndata, branch_name, position, pseudo_time_key=pseudo_time_key
-        )
+        plot_branch(mock_anndata, branch_name, position, pseudo_time_key=pseudo_time_key)
         plt.close()
 
 
@@ -579,9 +600,7 @@ def test_plot_trend_plotting(mock_anndata):
 
 
 def test_plot_gene_trend_heatmaps(mock_anndata):
-    fig = plot_gene_trend_heatmaps(
-        mock_anndata, genes=["gene_1", "gene_2"], scaling="z-score"
-    )
+    fig = plot_gene_trend_heatmaps(mock_anndata, genes=["gene_1", "gene_2"], scaling="z-score")
 
     # Test returned type
     assert isinstance(fig, plt.Figure)
@@ -597,10 +616,9 @@ def test_plot_gene_trend_clusters(mock_anndata):
     fig = plot_gene_trend_clusters(mock_anndata, branch_name="a", clusters="clusters")
     assert isinstance(fig, plt.Figure)
 
-    # Verify number of subplots
-    unique_clusters = mock_anndata.var["clusters"].unique()
-    expected_subplots = len(unique_clusters)
-    assert len(fig.axes) == expected_subplots
+    # We expect one subplot per unique non-NaN cluster
+    unique_clusters = [x for x in mock_anndata.var["clusters"].unique() if not pd.isna(x)]
+    assert len(fig.axes) == len(unique_clusters)
 
     # Test DataFrame input
     trends_df = mock_anndata.varm["gene_trends_a"]
@@ -608,7 +626,7 @@ def test_plot_gene_trend_clusters(mock_anndata):
     fig_df = plot_gene_trend_clusters(trends_df, clusters=clusters_series)
 
     assert isinstance(fig_df, plt.Figure)
-    assert len(fig_df.axes) == expected_subplots
+    assert len(fig_df.axes) == len(unique_clusters)
 
     plt.close(fig)
     plt.close(fig_df)

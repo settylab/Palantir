@@ -161,12 +161,8 @@ def compute_gene_trends_legacy(
         bins = np.linspace(0, pr_res.pseudotime[br_cells].max(), PSEUDOTIME_RES)
 
         # Branch results container
-        results[branch]["trends"] = pd.DataFrame(
-            0.0, index=gene_exprs.columns, columns=bins
-        )
-        results[branch]["std"] = pd.DataFrame(
-            0.0, index=gene_exprs.columns, columns=bins
-        )
+        results[branch]["trends"] = pd.DataFrame(0.0, index=gene_exprs.columns, columns=bins)
+        results[branch]["std"] = pd.DataFrame(0.0, index=gene_exprs.columns, columns=bins)
 
     # Compute for each branch
     for branch in lineages:
@@ -198,12 +194,10 @@ def compute_gene_trends_legacy(
                 df.columns = df.columns.astype(str)
                 data.varm[gene_trend_key + "_" + branch] = df
             else:
-                data.varm[gene_trend_key + "_" + branch] = results[branch][
+                data.varm[gene_trend_key + "_" + branch] = results[branch]["trends"].values
+                data.uns[gene_trend_key + "_" + branch + "_pseudotime"] = results[branch][
                     "trends"
-                ].values
-                data.uns[gene_trend_key + "_" + branch + "_pseudotime"] = results[
-                    branch
-                ]["trends"].columns.values
+                ].columns.values
         end = time.time()
         print("Time for processing {}: {} minutes".format(branch, (end - start) / 60))
 
@@ -271,9 +265,7 @@ def compute_gene_trends(
         save_as_df = config.SAVE_AS_DF
     # Check the AnnData object for the necessary keys
     if pseudo_time_key not in ad.obs_keys():
-        raise ValueError(
-            f"'{pseudo_time_key}' is not found in the AnnData object's obs."
-        )
+        raise ValueError(f"'{pseudo_time_key}' is not found in the AnnData object's obs.")
 
     masks, branches = _validate_obsm_key(ad, masks_key, as_df=False)
 
@@ -359,9 +351,7 @@ def gam_fit_predict(x, y, weights=None, pred_x=None, n_splines=4, spline_order=2
     n = len(use_inds)
     sigma = np.sqrt(((y[use_inds] - p) ** 2).sum() / (n - 2))
     stds = (
-        np.sqrt(1 + 1 / n + (pred_x - np.mean(x)) ** 2 / ((x - np.mean(x)) ** 2).sum())
-        * sigma
-        / 2
+        np.sqrt(1 + 1 / n + (pred_x - np.mean(x)) ** 2 / ((x - np.mean(x)) ** 2).sum()) * sigma / 2
     )
 
     return y_pred, stds
@@ -380,9 +370,7 @@ def _gam_fit_predict_rpy2(x, y, weights=None, pred_x=None):
 
     # Construct dataframe
     use_inds = np.where(weights > 0)[0]
-    r_df = pandas2ri.py2rpy(
-        pd.DataFrame(np.array([x, y]).T[use_inds, :], columns=["x", "y"])
-    )
+    r_df = pandas2ri.py2rpy(pd.DataFrame(np.array([x, y]).T[use_inds, :], columns=["x", "y"]))
 
     # Fit the model
     rgam = importr("gam")
@@ -392,9 +380,7 @@ def _gam_fit_predict_rpy2(x, y, weights=None, pred_x=None):
     if pred_x is None:
         pred_x = x
     y_pred = np.array(
-        robjects.r.predict(
-            model, newdata=pandas2ri.py2rpy(pd.DataFrame(pred_x, columns=["x"]))
-        )
+        robjects.r.predict(model, newdata=pandas2ri.py2rpy(pd.DataFrame(pred_x, columns=["x"])))
     )
 
     # Standard deviations
@@ -406,9 +392,7 @@ def _gam_fit_predict_rpy2(x, y, weights=None, pred_x=None):
     n = len(use_inds)
     sigma = np.sqrt(((y[use_inds] - p) ** 2).sum() / (n - 2))
     stds = (
-        np.sqrt(1 + 1 / n + (pred_x - np.mean(x)) ** 2 / ((x - np.mean(x)) ** 2).sum())
-        * sigma
-        / 2
+        np.sqrt(1 + 1 / n + (pred_x - np.mean(x)) ** 2 / ((x - np.mean(x)) ** 2).sum()) * sigma / 2
     )
 
     return y_pred, stds
@@ -457,12 +441,8 @@ def cluster_gene_trends(
     """
     if isinstance(data, sc.AnnData):
         if gene_trend_key is None:
-            raise KeyError(
-                "Must provide a gene_trend_key when data is an AnnData object."
-            )
-        trends, pseudotimes = _validate_varm_key(
-            data, gene_trend_key + "_" + branch_name
-        )
+            raise KeyError("Must provide a gene_trend_key when data is an AnnData object.")
+        trends, pseudotimes = _validate_varm_key(data, gene_trend_key + "_" + branch_name)
     else:
         trends = data
 
@@ -553,7 +533,7 @@ def select_branch_cells(
 
     # Calculate step size, ensuring it's at least 1 to avoid division by zero
     step = max(1, n // PSEUDOTIME_RES)
-    
+
     # Handle cases with small numbers of cells or large PSEUDOTIME_RES
     if step == 1:
         # If step is 1, we use as many steps as we have cells
@@ -562,7 +542,7 @@ def select_branch_cells(
         for i in range(nsteps):
             r = i + 1  # Include only up to current cell
             mprob = np.quantile(sorted_fate_probs[:r, :], 1 - q, axis=0)
-            prob_thresholds[i:i+1, :] = mprob[None, :]
+            prob_thresholds[i : i + 1, :] = mprob[None, :]
     else:
         # Regular processing with multiple cells per step
         nsteps = n // step
@@ -570,12 +550,12 @@ def select_branch_cells(
             l, r = i * step, (i + 1) * step
             mprob = np.quantile(sorted_fate_probs[:r, :], 1 - q, axis=0)
             prob_thresholds[l:r, :] = mprob[None, :]
-        
+
         # Handle any remaining cells
         if nsteps * step < n:
             mprob = np.quantile(sorted_fate_probs, 1 - q, axis=0)
-            prob_thresholds[nsteps * step:, :] = mprob[None, :]
-    
+            prob_thresholds[nsteps * step :, :] = mprob[None, :]
+
     prob_thresholds = np.maximum.accumulate(prob_thresholds, axis=0)
 
     masks = np.empty_like(fate_probs).astype(bool)

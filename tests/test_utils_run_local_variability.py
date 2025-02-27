@@ -5,6 +5,7 @@ from scipy.sparse import csr_matrix
 
 from palantir.utils import run_local_variability
 
+
 # Mock data for dense matrix
 def mock_anndata_dense(n_cells, n_genes, layer_keys, obsp_keys):
     ad = sc.AnnData(np.random.rand(n_cells, n_genes))
@@ -43,18 +44,14 @@ def test_run_local_variability_default_sparse():
 @pytest.mark.filterwarnings("ignore:invalid value encountered in divide")
 def test_run_local_variability_custom_keys_dense():
     ad = mock_anndata_dense(50, 20, ["custom_expression"], ["custom_distances"])
-    _test_run_local_variability(
-        ad, "custom_expression", "custom_distances", "custom_local_var"
-    )
+    _test_run_local_variability(ad, "custom_expression", "custom_distances", "custom_local_var")
 
 
 # Test with custom keys, sparse
 @pytest.mark.filterwarnings("ignore:invalid value encountered in divide")
 def test_run_local_variability_custom_keys_sparse():
     ad = mock_anndata_sparse(50, 20, ["custom_expression"], ["custom_distances"])
-    _test_run_local_variability(
-        ad, "custom_expression", "custom_distances", "custom_local_var"
-    )
+    _test_run_local_variability(ad, "custom_expression", "custom_distances", "custom_local_var")
 
 
 # Helper function for assertions

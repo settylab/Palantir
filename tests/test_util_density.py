@@ -51,9 +51,7 @@ def test_run_density(mock_anndata: AnnData):
 
 
 def test_run_density_custom_keys(mock_anndata_custom: AnnData):
-    run_density(
-        mock_anndata_custom, repr_key="DM_EigenVectors_custom", density_key="custom_key"
-    )
+    run_density(mock_anndata_custom, repr_key="DM_EigenVectors_custom", density_key="custom_key")
     assert "custom_key" in mock_anndata_custom.obs.keys()
     assert "custom_key_clipped" in mock_anndata_custom.obs.keys()
 
@@ -66,8 +64,6 @@ def test_run_low_density_variability(mock_anndata: AnnData):
 
 def test_run_density_evaluation(mock_anndata: AnnData, mock_anndata_custom: AnnData):
     run_density(mock_anndata)
-    run_density_evaluation(
-        mock_anndata, mock_anndata_custom, repr_key="DM_EigenVectors_custom"
-    )
+    run_density_evaluation(mock_anndata, mock_anndata_custom, repr_key="DM_EigenVectors_custom")
     assert "cross_log_density" in mock_anndata_custom.obs.keys()
     assert "cross_log_density_clipped" in mock_anndata_custom.obs.keys()

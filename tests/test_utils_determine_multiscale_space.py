@@ -14,7 +14,7 @@ def test_determine_multiscale_space_with_dict(mock_dm_res):
     assert isinstance(result, pd.DataFrame)
     assert result.shape[0] == 50  # Should have 50 cells
     # The number of components can vary depending on the generated eigenvalues
-    
+
     # Test with specific n_eigs
     result = determine_multiscale_space(mock_dm_res, n_eigs=3)
     assert isinstance(result, pd.DataFrame)
@@ -30,20 +30,20 @@ def test_determine_multiscale_space_with_anndata(mock_anndata):
     eigvals[1] = 0.85
     eigvals[2] = 0.75
     eigvals[3] = 0.30  # Big gap after this one
-    eigvals[4:] = np.linspace(0.25, 0.1, n_components-4)
-    
+    eigvals[4:] = np.linspace(0.25, 0.1, n_components - 4)
+
     # Create eigenvectors
     eigvecs = np.random.rand(mock_anndata.n_obs, n_components)
-    
+
     # Add to mock anndata
     mock_anndata.uns["DM_EigenValues"] = eigvals
     mock_anndata.obsm["DM_EigenVectors"] = eigvecs
-    
+
     # Test with AnnData input - both stores in obsm and returns DataFrame
     result = determine_multiscale_space(mock_anndata)
     assert isinstance(result, pd.DataFrame)  # Returns DataFrame for both AnnData and dict input
     assert "DM_EigenVectors_multiscaled" in mock_anndata.obsm  # Also stores in AnnData
-    
+
     # Should detect gap and use components after skipping first
     scaled_shape = mock_anndata.obsm["DM_EigenVectors_multiscaled"].shape
     assert scaled_shape[0] == mock_anndata.n_obs  # Number of cells matches
@@ -55,19 +55,19 @@ def test_determine_multiscale_space_with_small_gap(mock_anndata):
     # Setup eigenvalues with no clear gap
     n_components = 5
     eigvals = np.linspace(0.9, 0.5, n_components)
-    
+
     # Create eigenvectors
     eigvecs = np.random.rand(mock_anndata.n_obs, n_components)
-    
+
     # Add to mock anndata
     mock_anndata.uns["DM_EigenValues"] = eigvals
     mock_anndata.obsm["DM_EigenVectors"] = eigvecs
-    
+
     # Test with AnnData input - both stores in obsm and returns DataFrame
     result = determine_multiscale_space(mock_anndata)
     assert isinstance(result, pd.DataFrame)  # Returns DataFrame
     assert "DM_EigenVectors_multiscaled" in mock_anndata.obsm  # Also stores in AnnData
-    
+
     # Should fall back to second largest gap
     scaled_shape = mock_anndata.obsm["DM_EigenVectors_multiscaled"].shape
     assert scaled_shape[0] == mock_anndata.n_obs

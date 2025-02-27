@@ -8,9 +8,7 @@ from palantir.core import run_palantir
 
 # Test with basic DataFrame input
 @pytest.mark.filterwarnings("ignore:np.find_common_type is deprecated.")
-@pytest.mark.filterwarnings(
-    "ignore:Changing the sparsity structure of a csr_matrix is expensive."
-)
+@pytest.mark.filterwarnings("ignore:Changing the sparsity structure of a csr_matrix is expensive.")
 def test_palantir_dataframe(mock_data):
     result = run_palantir(mock_data, "cell_0")
     assert isinstance(result, PResults), "Should return a PResults object"
@@ -18,30 +16,22 @@ def test_palantir_dataframe(mock_data):
 
 # Test with basic AnnData input
 @pytest.mark.filterwarnings("ignore:np.find_common_type is deprecated.")
-@pytest.mark.filterwarnings(
-    "ignore:Changing the sparsity structure of a csr_matrix is expensive."
-)
+@pytest.mark.filterwarnings("ignore:Changing the sparsity structure of a csr_matrix is expensive.")
 def test_palantir_anndata(mock_anndata):
     run_palantir(mock_anndata, "cell_0")
     assert (
         "palantir_pseudotime" in mock_anndata.obs.keys()
     ), "Pseudotime key missing in AnnData object"
-    assert (
-        "palantir_entropy" in mock_anndata.obs.keys()
-    ), "Entropy key missing in AnnData object"
+    assert "palantir_entropy" in mock_anndata.obs.keys(), "Entropy key missing in AnnData object"
     assert (
         "palantir_fate_probabilities" in mock_anndata.obsm.keys()
     ), "Fate probability key missing in AnnData object"
-    assert (
-        "palantir_waypoints" in mock_anndata.uns.keys()
-    ), "Waypoint key missing in AnnData object"
+    assert "palantir_waypoints" in mock_anndata.uns.keys(), "Waypoint key missing in AnnData object"
 
 
 # Test terminal states
 @pytest.mark.filterwarnings("ignore:np.find_common_type is deprecated.")
-@pytest.mark.filterwarnings(
-    "ignore:Changing the sparsity structure of a csr_matrix is expensive."
-)
+@pytest.mark.filterwarnings("ignore:Changing the sparsity structure of a csr_matrix is expensive.")
 def test_palantir_terminal_states(mock_data):
     result = run_palantir(mock_data, "cell_0", terminal_states=["cell_1", "cell_2"])
     assert "cell_1" in result.branch_probs.columns, "Terminal state cell_1 missing"
@@ -50,9 +40,7 @@ def test_palantir_terminal_states(mock_data):
 
 # Test scaling components
 @pytest.mark.filterwarnings("ignore:np.find_common_type is deprecated.")
-@pytest.mark.filterwarnings(
-    "ignore:Changing the sparsity structure of a csr_matrix is expensive."
-)
+@pytest.mark.filterwarnings("ignore:Changing the sparsity structure of a csr_matrix is expensive.")
 def test_scaling_components(mock_data):
     result1 = run_palantir(mock_data, "cell_0", scale_components=True)
     result2 = run_palantir(mock_data, "cell_0", scale_components=False)
