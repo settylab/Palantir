@@ -76,7 +76,10 @@ exclude = '''
 
 [tool.coverage.run]
 source = ["palantir"]
-omit = ["tests/*"]
+omit = [
+    "tests/*",
+    "*/config.py"
+]
 
 [tool.coverage.report]
 exclude_lines = [
@@ -85,4 +88,6 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "pass",
     "raise ImportError",
+    "def _return_cell",
+    "print"
 ]
