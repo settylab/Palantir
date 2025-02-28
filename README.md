@@ -4,18 +4,45 @@
 Palantir
 ------
 
-Palantir is an algorithm to align cells along differentiation trajectories. Palantir models differentiation as a stochastic process where stem cells differentiate to terminally differentiated cells by a series of steps through a low dimensional phenotypic manifold. Palantir effectively captures the continuity in cell states and the stochasticity in cell fate determination. Palantir has been designed to work with multidimensional single cell data from diverse technologies such as Mass cytometry and single cell RNA-seq. 
+Palantir is an algorithm to align cells along differentiation trajectories. Palantir models differentiation as a stochastic process where stem cells differentiate to terminally differentiated cells by a series of steps through a low dimensional phenotypic manifold. Palantir effectively captures the continuity in cell states and the stochasticity in cell fate determination. Palantir has been designed to work with multidimensional single cell data from diverse technologies such as Mass cytometry and single cell RNA-seq.
 
-
-## Installation and dependencies
+## Installation
 Palantir has been implemented in Python3 and can be installed using:
 
-        pip install palantir
+### Using pip
+```sh
+pip install palantir
+```
+
+### Using conda, mamba, or micromamba from the bioconda channel
+You can also install Palantir via conda, mamba, or micromamba from the bioconda channel:
+
+#### Using conda
+```sh
+conda install -c conda-forge -c bioconda palantir
+```
+
+#### Using mamba
+```sh
+mamba install -c conda-forge -c bioconda palantir
+```
+
+#### Using micromamba
+```sh
+micromamba install -c conda-forge -c bioconda palantir
+```
+
+These methods ensure that all dependencies are resolved and installed efficiently.
 
 
 ## Usage
 
-A tutorial on Palantir usage and results visualization for single cell RNA-seq data can be found in this notebook: http://nbviewer.jupyter.org/github/dpeerlab/Palantir/blob/master/notebooks/Palantir_sample_notebook.ipynb
+A tutorial on Palantir usage and results visualization for single cell RNA-seq
+data can be found in this notebook:
+https://github.com/dpeerlab/Palantir/blob/master/notebooks/Palantir_sample_notebook.ipynb
+
+More tutorials and a documentation of all the Palantir components can be found
+here: https://palantir.readthedocs.io
 
 ## Processed data and metadata
 
@@ -24,7 +51,8 @@ A tutorial on Palantir usage and results visualization for single cell RNA-seq d
 - [Replicate 2 (Rep2)](https://s3.amazonaws.com/dp-lab-data-public/palantir/human_cd34_bm_rep2.h5ad)
 - [Replicate 3 (Rep3)](https://s3.amazonaws.com/dp-lab-data-public/palantir/human_cd34_bm_rep3.h5ad)
 
-This notebook details how to use the data in `Python` and `R`: http://nbviewer.jupyter.org/github/dpeerlab/Palantir/blob/master/notebooks/manuscript_data.ipynb
+This notebook details how to use the data in `Python` and `R`:
+https://github.com/dpeerlab/Palantir/blob/master/notebooks/manuscript_data.ipynb
 
 ## Comparison to trajectory detection algorithms
 Notebooks detailing the generation of results comparing Palantir to trajectory detection algorithms are available [here](https://github.com/dpeerlab/Palantir/blob/master/notebooks/comparisons)
@@ -53,19 +81,14 @@ Release Notes
  * Add comprehensive module docstring to package
  * Make pygam an optional dependency (install with `pip install palantir[gam]`)
  * Add compatibility checks for pygam and scipy
-
- ### Version 1.3.3
- * Removed redundant version specification in version.py
- * Use importlib.metadata to get version from package metadata
- * Fix branch selection algorithm for small datasets
- * Fix `select_branch_cells` division by zero error
- * Add integration tests with sample data
- * Add tests for `cluster_gene_trends` function
- * Fix compatibility issues with newer pandas versions
- * Update Series indexing to use `.iloc[]` or `.loc[]` instead of `[]` syntax
- * Improve tests to handle differences between pandas versions
- * Properly handle `NaN` values in cluster operations
-
+ * `run_magic_imputation` now has a boolean parameter `sparse` to control output sparsity
+ * **bugfix**: `run_local_variability` for dense expression arrays now runs much faster and more accurate
+ * avoid division by zero in `select_branch_cells` for very small datasets
+ * make branch selection robust against NaNs
+ * do not plot unclustered trends (NaN cluster) in `plot_gene_trend_clusters`
+ * optional progress bar with `progress=True` in `palantir.utils.run_local_variability`
+ * avoid NaN in local variability output
+ * compatibility with `scanpy>=1.10.0`
  ### Version 1.3.2
  * require `python>=3.8`
  * implement CI for testing
@@ -115,20 +138,20 @@ Release Notes
 
 
 ### Version 1.1.0
- * Replaced rpy2 with pyGAM for computing gene expression trends. 
- * Updated tutorial and plotting functions 
+ * Replaced rpy2 with pyGAM for computing gene expression trends.
+ * Updated tutorial and plotting functions
 
 
 ### Version 1.0.0
 
- * A fix to [issue#41](https://github.com/dpeerlab/Palantir/issues/41) 
+ * A fix to [issue#41](https://github.com/dpeerlab/Palantir/issues/41)
  * A fix to [issue#42](https://github.com/dpeerlab/Palantir/issues/42)
  * Revamped tutorial with support for Anndata and force directed layouts
 
 ### Version 0.2.6
 
  * A fix to [issue#33](https://github.com/dpeerlab/Palantir/issues/33) and [issue#31](https://github.com/dpeerlab/Palantir/issues/31)
- 
+
 ### Version 0.2.5
 
  * A fix related to [issue#28](https://github.com/dpeerlab/Palantir/issues/28). When identifying terminal states, duplicate values were generated instead of unique ones.

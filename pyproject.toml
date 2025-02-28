@@ -55,6 +55,13 @@ test = [
     "h5py",
 ]
 
+dev = [
+    "flake8",
+    "pytest",
+    "coverage",
+    "typing-extensions"
+]
+
 [project.urls]
 Homepage = "https://github.com/dpeerlab/palantir"
 "Bug Tracker" = "https://github.com/dpeerlab/palantir/issues"

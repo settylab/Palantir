@@ -571,13 +571,18 @@ def select_branch_cells(
     fate_probs, fate_names = _validate_obsm_key(ad, fate_prob_key, as_df=False)
     pseudotime = ad.obs[pseudo_time_key].values
 
+    fate_probs[np.isnan(fate_probs)] = 1/fate_probs.shape[1]
+
     idx = np.argsort(pseudotime)
     sorted_fate_probs = fate_probs[idx, :]
     prob_thresholds = np.empty_like(fate_probs)
     n = fate_probs.shape[0]
 
+    # Calculate appropriate pseudotime resolution based on number of cells
+    pseudotime_resolution = min(PSEUDOTIME_RES, n)
+    
     # Calculate step size, ensuring it's at least 1 to avoid division by zero
-    step = max(1, n // PSEUDOTIME_RES)
+    step = max(1, n // pseudotime_resolution)
 
     # Handle cases with small numbers of cells or large PSEUDOTIME_RES
     if step == 1:
@@ -600,7 +605,6 @@ def select_branch_cells(
         if nsteps * step < n:
             mprob = np.quantile(sorted_fate_probs, 1 - q, axis=0)
             prob_thresholds[nsteps * step :, :] = mprob[None, :]
-
     prob_thresholds = np.maximum.accumulate(prob_thresholds, axis=0)
 
     masks = np.empty_like(fate_probs).astype(bool)

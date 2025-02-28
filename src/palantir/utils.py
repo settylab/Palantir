@@ -17,7 +17,7 @@ from .validation import _validate_obsm_key
 
 
 class CellNotFoundException(Exception):
-    """Exception raised when no valid component is found for the provided cell type."""
+    """Exception raised when no cell could be determined by the used method."""
 
     pass
 
@@ -63,7 +63,7 @@ def run_pca(
         n_comps = n_components
     else:
         l_n_comps = min(1000, ad.n_obs - 1, ad.n_vars - 1)
-        sc.pp.pca(ad, n_comps=l_n_comps, use_highly_variable=True, zero_center=False)
+        sc.pp.pca(ad, n_comps=l_n_comps, mask_var="highly_variable", zero_center=False)
         try:
             n_comps = np.where(np.cumsum(ad.uns["pca"]["variance_ratio"]) > 0.85)[0][0]
         except IndexError:
@@ -71,7 +71,10 @@ def run_pca(
 
     # Rerun with selection number of components
     n_comps = min(n_comps, ad.n_obs - 1, ad.n_vars - 1)
-    sc.pp.pca(ad, n_comps=n_comps, use_highly_variable=use_hvg, zero_center=False)
+    kwargs = dict()
+    if use_hvg:
+        kwargs["mask_var"] = "highly_variable"
+    sc.pp.pca(ad, n_comps=n_comps, zero_center=False, **kwargs)
 
     if isinstance(data, sc.AnnData):
         data.obsm[pca_key] = ad.obsm["X_pca"]
@@ -505,7 +508,9 @@ def _dot_helper_func(x: csr_matrix, y: Union[np.ndarray, csr_matrix]) -> np.ndar
 
 
 def _local_var_helper(
-    expressions: Union[np.ndarray, csr_matrix], distances: csr_matrix
+    expressions: Union[np.ndarray, csr_matrix], 
+    distances: csr_matrix,
+    eps: float = 1e-16
 ) -> Generator[np.ndarray, None, None]:
     """Helper function to compute local variability for gene expression data.
 
@@ -517,6 +522,8 @@ def _local_var_helper(
         Gene expression matrix, cells x genes.
     distances : csr_matrix
         Distance matrix between cells.
+    eps : float, optional
+        A small constant added to prevent division by zero. Default is 1e-16.
 
     Returns
     -------
@@ -529,18 +536,16 @@ def _local_var_helper(
         If expression data cannot be processed for a specific cell.
     """
     if hasattr(expressions, "todense"):
-
         def cast(x):
             return x.todense()
-
-        issparse = True
     else:
-
         def cast(x):
             return x
-
+    if not hasattr(distances, "getrow"):
+        warn("The passed distance matrix is not sparse. Pass a sparse matrix for improved runtime.")
         issparse = False
-
+    else:
+        issparse = True
     for cell in range(expressions.shape[0]):
         neighbors = distances.getrow(cell).indices if issparse else slice(None)
         try:
@@ -550,7 +555,7 @@ def _local_var_helper(
         except ValueError:
             raise ValueError(f"This cell caused the error: {cell}")
         expr_distance = np.sqrt(np.sum(expr_deltas**2, axis=1, keepdims=True))
-        change_rate = expr_deltas / expr_distance
+        change_rate = expr_deltas / (expr_distance + eps)
         yield np.max(change_rate**2, axis=0)
 
 
@@ -559,6 +564,8 @@ def run_local_variability(
     expression_key: str = "MAGIC_imputed_data",
     distances_key: str = "distances",
     localvar_key: str = "local_variability",
+    progress: bool = False,
+    eps: float = 1e-16,
 ) -> np.ndarray:
     """
     Compute local gene variability scores for each cell.
@@ -579,6 +586,10 @@ def run_local_variability(
     localvar_key : str, optional
         Key under which the computed local variability matrix is stored in the layers of the AnnData object.
         Default is 'local_variability'.
+    progress : bool
+        Show progress bar. Requires tqdm to be installed. Default is False.
+    eps : float
+        A small value preventing devision by 0. Defaults to 1e-16.
 
     Returns
     -------
@@ -597,7 +608,17 @@ def run_local_variability(
         raise KeyError(f"'{distances_key}' not found in .obsp.")
     X_dists = ad.obsp[distances_key]
 
-    local_variability = np.stack(list(_local_var_helper(X, X_dists)))
+    local_var_generator = _local_var_helper(X, X_dists, eps=eps)
+    if progress is True:
+        try:
+            from fastprogress.fastprogress import progress_bar
+        except ModuleNotFoundError:
+            raise Exception(
+                "Showing the progress bar requires the python module `fastprogress` to be installed."
+            )
+        local_var_generator = progress_bar(local_var_generator, total=X.shape[0])
+
+    local_variability = np.stack(list(local_var_generator))
 
     ad.layers[localvar_key] = local_variability
 
@@ -612,6 +633,8 @@ def run_magic_imputation(
     expression_key: str = None,
     imputation_key: str = "MAGIC_imputed_data",
     n_jobs: int = -1,
+    sparse: bool = True,
+    clip_threshold: float = 1e-2,
 ) -> Union[pd.DataFrame, None, csr_matrix]:
     """
     Run MAGIC imputation on the data.
@@ -635,6 +658,10 @@ def run_magic_imputation(
         Key to store the imputed data in layers of data if it is a sc.AnnData object. Default is 'MAGIC_imputed_data'.
     n_jobs : int, optional
         Number of cores to use for parallel processing. If -1, all available cores are used. Default is -1.
+    sparse : bool, optional
+        If True, sets values below `clip_threshold` to 0 to return a sparse matrix. If False, return a dense matrix. Default is True.
+    clip_threshold: float, optional
+        Threshold value for setting values to 0 when returning a sparse matrix. Default is 1e-2. Unused if `sparse` is False.
 
     Returns
     -------
@@ -678,20 +705,31 @@ def run_magic_imputation(
 
     # Stack the results together
     if issparse(X):
-        imputed_data = hstack(res).todense()
+        imputed_data = hstack(res)
     else:
         imputed_data = np.hstack(res)
 
-    # Set small values to zero
-    imputed_data[imputed_data < 1e-2] = 0
+    # Set small values to zero if returning sparse matrix 
+    if sparse:
+        if issparse(X):
+            imputed_data.data[imputed_data.data < clip_threshold] = 0
+            imputed_data.eliminate_zeros()
+        else:
+            imputed_data = np.where(imputed_data < clip_threshold, 0, imputed_data)
+            imputed_data = csr_matrix(imputed_data)
+    else:
+        if issparse(X):
+            imputed_data = imputed_data.todense()
 
     # Clean up
     gc.collect()
 
     if isinstance(data, sc.AnnData):
-        data.layers[imputation_key] = np.asarray(imputed_data)
+        data.layers[imputation_key] = imputed_data
 
     if isinstance(data, pd.DataFrame):
+        if issparse(imputed_data):
+            imputed_data = imputed_data.toarray()
         imputed_data = pd.DataFrame(imputed_data, index=data.index, columns=data.columns)
 
     return imputed_data
@@ -746,6 +784,9 @@ def determine_multiscale_space(
         n_eigs = np.argsort(vals[: (len(vals) - 1)] - vals[1:])[-1] + 1
         if n_eigs < 3:
             n_eigs = np.argsort(vals[: (len(vals) - 1)] - vals[1:])[-2] + 1
+        if n_eigs < 3:
+            # Fix for #39
+            n_eigs = 3
 
     # Scale the data
     use_eigs = list(range(1, n_eigs))
@@ -813,7 +854,9 @@ def early_cell(
         Key to access multiscale space diffusion components from obsm of ad.
         Default is 'DM_EigenVectors_multiscaled'.
     fallback_seed : int, optional
-        Seed for random number generator in fallback method. If not specified, no seed is used.
+        Seed for random number generator in fallback method. If not specified,
+        the fallback method is not applied and CellNotFoundException error is
+        raised instead.
         Default is None.
 
     Returns
@@ -956,8 +999,10 @@ def find_terminal_states(
         Key to access multiscale space diffusion components from obsm of ad.
         Default is 'DM_EigenVectors_multiscaled'.
     fallback_seed : int, optional
-        Seed for the random number generator used in the fallback method. Defaults to None, in which case
-        the random number generator will be randomly seeded.
+        Seed for random number generator in fallback method. If not specified,
+        the fallback method is not applied and CellNotFoundException error is
+        raised instead.
+        Defaults to None.
 
     Returns
     -------
