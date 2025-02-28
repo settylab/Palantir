@@ -46,16 +46,21 @@ ____
 Release Notes
 -------------
  ### Version 1.3.3
- * removed redundant version specification in version.py
- * use importlib.metadata to get version from package metadata
- * fix branch selection algorithm for small datasets
- * fix `select_branch_cells` division by zero error
- * add integration tests with sample data
- * add tests for `cluster_gene_trends` function
- * fix compatibility issues with newer pandas versions
- * update Series indexing to use `.iloc[]` or `.loc[]` instead of `[]` syntax
- * improve tests to handle differences between pandas versions
- * properly handle `NaN` values in cluster operations
+ * Removed redundant version specification in version.py
+ * Use importlib.metadata to get version from package metadata
+ * Fix branch selection algorithm for small datasets
+ * Fix `select_branch_cells` division by zero error
+ * Add integration tests with sample data
+ * Add tests for `cluster_gene_trends` function
+ * Fix compatibility issues with newer pandas versions
+ * Update Series indexing to use `.iloc[]` or `.loc[]` instead of `[]` syntax
+ * Improve tests to handle differences between pandas versions
+ * Properly handle `NaN` values in cluster operations
+ * Add improved type hints throughout the codebase
+ * Refactor plotting utilities for better code reusability
+ * Create plot_utils module with helper functions
+ * Improve docstrings to follow NumPy style consistently
+ * Add comprehensive module docstring to package
 
  ### Version 1.3.2
  * require `python>=3.8`

@@ -320,14 +320,59 @@ def compute_gene_trends(
 def gam_fit_predict(x, y, weights=None, pred_x=None, n_splines=4, spline_order=2):
     """
     Function to compute individual gene trends using pyGAM
+    
+    This function requires the optional pygam package. If not installed, it will raise an
+    ImportError with instructions on how to install it.
 
-    :param x: Pseudotime axis
-    :param y: Magic imputed expression for one gene
-    :param weights: Lineage branch weights
-    :param pred_x: Pseudotime axis for predicted values
-    :param n_splines: Number of splines to use. Must be non-negative.
-    :param spline_order: Order of spline to use. Must be non-negative.
+    Parameters
+    ----------
+    x : array-like
+        Pseudotime axis
+    y : array-like
+        Magic imputed expression for one gene
+    weights : array-like, optional
+        Lineage branch weights
+    pred_x : array-like, optional
+        Pseudotime axis for predicted values
+    n_splines : int, optional
+        Number of splines to use. Must be non-negative.
+    spline_order : int, optional
+        Order of spline to use. Must be non-negative.
+        
+    Returns
+    -------
+    tuple
+        Predicted values and their standard deviations.
+        
+    Raises
+    ------
+    ImportError
+        If pygam is not installed. Install with `pip install pygam` or 
+        `pip install palantir[gam]`.
     """
+    try:
+        from pygam import LinearGAM, s
+    except ImportError:
+        raise ImportError(
+            "The pygam package is required for this function but not installed. "
+            "You can install it with:\n"
+            "    pip install pygam\n"
+            "or:\n"
+            "    pip install palantir[gam]"
+        )
+        
+    # Check for known compatibility issues
+    try:
+        import scipy.sparse as sp
+        test_matrix = sp.csr_matrix((1, 1))
+        if not hasattr(test_matrix, 'A'):
+            import warnings
+            warnings.warn(
+                "Your scipy version may be incompatible with the installed pygam version. "
+                "If you encounter errors, consider using an older scipy version or updating pygam."
+            )
+    except:
+        pass  # Silently ignore any errors in the compatibility check
 
     # Weights
     if weights is None:

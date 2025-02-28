@@ -1,4 +1,4 @@
-from typing import Iterable, Union, Tuple, List
+from typing import Iterable, Union, Tuple, List, Dict, Generator, Optional
 from warnings import warn
 import pandas as pd
 import numpy as np
@@ -359,7 +359,7 @@ def compute_kernel(
 
 def diffusion_maps_from_kernel(
     kernel: csr_matrix, n_components: int = 10, seed: Union[int, None] = 0
-):
+) -> Dict[str, Union[csr_matrix, pd.DataFrame, pd.Series]]:
     """
     Compute the diffusion map given a kernel matrix.
 
@@ -374,8 +374,11 @@ def diffusion_maps_from_kernel(
 
     Returns
     -------
-    dict
-        T-matrix (T), Diffusion components (EigenVectors) and corresponding eigenvalues (EigenValues).
+    Dict[str, Union[csr_matrix, pd.DataFrame, pd.Series]]
+        Dictionary containing:
+        - T: Transition matrix (csr_matrix)
+        - EigenVectors: Diffusion components (pd.DataFrame)
+        - EigenValues: Corresponding eigenvalues (pd.Series)
     """
     N = kernel.shape[0]
     D = np.ravel(kernel.sum(axis=1))
@@ -409,7 +412,7 @@ def run_diffusion_maps(
     sim_key: str = "DM_Similarity",
     eigval_key: str = "DM_EigenValues",
     eigvec_key: str = "DM_EigenVectors",
-):
+) -> Dict[str, Union[csr_matrix, pd.DataFrame, pd.Series]]:
     """
     Run Diffusion maps using the adaptive anisotropic kernel.
 
@@ -441,10 +444,13 @@ def run_diffusion_maps(
 
     Returns
     -------
-    dict
-        Diffusion components, corresponding eigen values and the diffusion operator.
-        If sc.AnnData is passed as data, these results are also written to the input object
-        and returned.
+    Dict[str, Union[csr_matrix, pd.DataFrame, pd.Series]]
+        Dictionary containing:
+        - kernel: Computed kernel matrix
+        - T: Transition matrix
+        - EigenVectors: Diffusion components
+        - EigenValues: Corresponding eigenvalues
+        If sc.AnnData is passed as data, these results are also written to the input object.
     """
 
     if isinstance(data, sc.AnnData):
@@ -480,11 +486,48 @@ def run_diffusion_maps(
     return res
 
 
-def _dot_helper_func(x, y):
+def _dot_helper_func(x: csr_matrix, y: Union[np.ndarray, csr_matrix]) -> np.ndarray:
+    """Helper function to compute dot product of sparse matrices.
+
+    Parameters
+    ----------
+    x : csr_matrix
+        First sparse matrix.
+    y : Union[np.ndarray, csr_matrix]
+        Second matrix or array to multiply.
+
+    Returns
+    -------
+    np.ndarray
+        Result of the dot product.
+    """
     return x.dot(y)
 
 
-def _local_var_helper(expressions, distances):
+def _local_var_helper(
+    expressions: Union[np.ndarray, csr_matrix], distances: csr_matrix
+) -> Generator[np.ndarray, None, None]:
+    """Helper function to compute local variability for gene expression data.
+
+    Calculates maximum change rates of gene expression in local neighborhoods.
+
+    Parameters
+    ----------
+    expressions : Union[np.ndarray, csr_matrix]
+        Gene expression matrix, cells x genes.
+    distances : csr_matrix
+        Distance matrix between cells.
+
+    Returns
+    -------
+    Generator[np.ndarray, None, None]
+        Generator yielding maximum change rate vectors for each cell.
+
+    Raises
+    ------
+    ValueError
+        If expression data cannot be processed for a specific cell.
+    """
     if hasattr(expressions, "todense"):
 
         def cast(x):
@@ -497,6 +540,7 @@ def _local_var_helper(expressions, distances):
             return x
 
         issparse = False
+
     for cell in range(expressions.shape[0]):
         neighbors = distances.getrow(cell).indices if issparse else slice(None)
         try:
@@ -715,19 +759,27 @@ def determine_multiscale_space(
     return data
 
 
-def _return_cell(ec, obs_names, celltype, mm, dcomp):
+def _return_cell(ec: int, obs_names: pd.Index, celltype: str, mm: str, dcomp: int) -> str:
     """
     Helper function to print and return the early cell.
 
-    Args:
-        ec (int): Index of the early cell.
-        obs_names (list): Names of cells.
-        celltype (str): The cell type of interest.
-        mm (str): Max/min status of the diffusion component.
-        dcomp (int): Index of diffusion component.
+    Parameters
+    ----------
+    ec : int
+        Index of the early cell.
+    obs_names : pd.Index
+        Names of cells.
+    celltype : str
+        The cell type of interest.
+    mm : str
+        Max/min status of the diffusion component.
+    dcomp : int
+        Index of diffusion component.
 
-    Returns:
-        str: Name of the early cell.
+    Returns
+    -------
+    str
+        Name of the early cell.
     """
     early_cell = obs_names[ec]
     print(

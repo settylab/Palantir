@@ -16,6 +16,9 @@ import matplotlib.patheffects as PathEffects
 from matplotlib.colors import Normalize, Colormap
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+# Import plot utilities
+from .plot_utils import _scatter_with_colorbar, _highlight_cells, _add_legend, _setup_axes
+
 # Define type aliases and helper functions to ensure compatibility with all scanpy versions
 _FontWeight = Literal["light", "normal", "medium", "semibold", "bold", "heavy", "black"]
 _FontSize = Literal["xx-small", "x-small", "small", "medium", "large", "x-large", "xx-large"]
@@ -326,6 +329,7 @@ def highlight_cells_on_umap(
     fig: Optional[plt.Figure] = None,
     ax: Optional[plt.Axes] = None,
     embedding_basis: str = "X_umap",
+    figsize: Tuple[float, float] = (6, 6),
 ) -> Tuple[plt.Figure, plt.Axes]:
     """
      Highlights and annotates specific cells on a UMAP plot.
@@ -352,6 +356,8 @@ def highlight_cells_on_umap(
          Matplotlib Axes object. If None, a new Axes object is created. Default is None.
      embedding_basis : str, optional
          The key to retrieve UMAP results from the AnnData object. Default is 'X_umap'.
+     figsize : Tuple[float, float], optional
+         Size of the figure (width, height) in inches. Default is (6, 6).
 
      Returns
      -------
@@ -407,37 +413,95 @@ def highlight_cells_on_umap(
             "(as column in .obs), or a boolean array-like."
         )
 
-    xpad, ypad = (umap.max() - umap.min()) * annotation_offset
+    # Create mask for highlighted cells
+    cell_mask = np.zeros(umap.shape[0], dtype=bool)
+    for cell in cells.keys():
+        if cell in umap.index:
+            cell_mask[umap.index.get_loc(cell)] = True
 
-    fig, ax = get_fig(fig=fig, ax=ax)
+    # Setup figure and axes
+    fig, ax = _setup_axes(figsize=figsize, fig=fig, ax=ax)
+
+    # Create base plot with all cells
     ax.scatter(umap["x"], umap["y"], s=s, color=config.DESELECTED_COLOR)
 
+    # Add highlighted cells
     for cell, annotation in cells.items():
         if cell in umap.index:
             x, y = umap.loc[cell, ["x", "y"]]
             ax.scatter(x, y, c=config.SELECTED_COLOR, s=s_highlighted)
-            if annotation:
-                ax.annotate(annotation, (x, y), (x + xpad, y + ypad), "data")
-    ax.set_axis_off()
 
+            # Add annotations if provided
+            if annotation:
+                xpad, ypad = (umap.max() - umap.min()) * annotation_offset
+                ax.annotate(annotation, (x, y), (x + xpad, y + ypad), "data")
+
+    ax.set_axis_off()
     return fig, ax
 
 
-def plot_tsne_by_cell_sizes(data, tsne, fig=None, ax=None, vmin=None, vmax=None):
-    """Plot tSNE projections of the data with cells colored by molecule counts
-    :param data: Expression data, DataFrame-like
-    :param tsne: tSNE coordinates, DataFrame-like
-    :param fig: matplotlib Figure object, optional
-    :param ax: matplotlib Axis object, optional
-    :param vmin: Minimum molecule count for plotting, optional
-    :param vmax: Maximum molecule count for plotting, optional
+def plot_tsne_by_cell_sizes(
+    data: pd.DataFrame,
+    tsne: pd.DataFrame,
+    fig: Optional[plt.Figure] = None,
+    ax: Optional[plt.Axes] = None,
+    vmin: Optional[float] = None,
+    vmax: Optional[float] = None,
+    figsize: Tuple[float, float] = (6, 6),
+    s: float = 3,
+    cmap: str = "viridis",
+    colorbar_label: str = "Molecule Count",
+) -> Tuple[plt.Figure, plt.Axes]:
     """
+    Plot tSNE projections of the data with cells colored by molecule counts.
 
+    Parameters
+    ----------
+    data : pd.DataFrame
+        Expression data, where each row is a cell and each column is a gene/feature.
+    tsne : pd.DataFrame
+        tSNE coordinates with columns 'x' and 'y'.
+    fig : Optional[plt.Figure], optional
+        Matplotlib Figure object. If None, a new figure is created. Default is None.
+    ax : Optional[plt.Axes], optional
+        Matplotlib Axes object. If None, a new Axes object is created. Default is None.
+    vmin : Optional[float], optional
+        Minimum molecule count for plotting. Default is None.
+    vmax : Optional[float], optional
+        Maximum molecule count for plotting. Default is None.
+    figsize : Tuple[float, float], optional
+        Size of the figure (width, height) in inches. Default is (6, 6).
+    s : float, optional
+        Size of the points in the scatter plot. Default is 3.
+    cmap : str, optional
+        Colormap to use for the scatter plot. Default is 'viridis'.
+    colorbar_label : str, optional
+        Label for the colorbar. Default is 'Molecule Count'.
+
+    Returns
+    -------
+    Tuple[plt.Figure, plt.Axes]
+        The figure and axes objects.
+    """
+    # Calculate molecule counts per cell
     sizes = data.sum(axis=1)
-    fig, ax = get_fig(fig, ax)
-    scatter = ax.scatter(tsne["x"], tsne["y"], s=3, c=sizes, vmin=vmin, vmax=vmax)
+
+    # Setup figure and axes
+    fig, ax = _setup_axes(figsize=figsize, fig=fig, ax=ax)
+
+    # Create scatter plot with colorbar
+    ax, _ = _scatter_with_colorbar(
+        ax=ax,
+        x=tsne["x"].values,
+        y=tsne["y"].values,
+        c=sizes.values,
+        s=s,
+        cmap=cmap,
+        norm=Normalize(vmin=vmin, vmax=vmax),
+        colorbar_label=colorbar_label,
+    )
+
     ax.set_axis_off()
-    plt.colorbar(scatter, ax=ax)
     return fig, ax
 
 
