@@ -58,9 +58,11 @@ Release Notes
  * Properly handle `NaN` values in cluster operations
  * Add improved type hints throughout the codebase
  * Refactor plotting utilities for better code reusability
- * Create plot_utils module with helper functions
+ * Create `plot_utils` module with helper functions
  * Improve docstrings to follow NumPy style consistently
  * Add comprehensive module docstring to package
+ * Make pygam an optional dependency (install with `pip install palantir[gam]`)
+ * Add compatibility checks for pygam and scipy
 
  ### Version 1.3.2
  * require `python>=3.8`
