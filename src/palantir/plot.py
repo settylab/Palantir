@@ -1998,28 +1998,14 @@ def plot_gene_trend_clusters(
     )
 
     # Obtain unique clusters and prepare figure
-<<<<<<< HEAD
     if pd.api.types.is_categorical_dtype(clusters):
-        cluster_labels = clusters.cat.categories
+        cluster_labels = set(clusters.cat.categories)
     else:
         # Filter out NaN values to avoid issues with np.NaN vs np.nan
         cluster_labels = set([x for x in clusters if not pd.isna(x)])
-
-||||||| cbf4a11
-    cluster_labels = (
-        clusters.cat.categories
-        if pd.api.types.is_categorical_dtype(clusters)
-        else set(clusters)
-    )
-=======
-    cluster_labels = (
-        set(clusters.cat.categories)
-        if isinstance(clusters, pd.CategoricalDtype)
-        else set(clusters)
-    )
+    
+    # Make sure NaN values are filtered out
     cluster_labels = cluster_labels.difference({np.NaN})
-
->>>>>>> dpeer/master
     n_rows = int(np.ceil(len(cluster_labels) / 3))
     fig = plt.figure(figsize=[5.5 * 3, 2.5 * n_rows])
 
