@@ -81,43 +81,37 @@ Release Notes
  * Add comprehensive module docstring to package
  * Make pygam an optional dependency (install with `pip install palantir[gam]`)
  * Add compatibility checks for pygam and scipy
+ * Removed redundant version specification in version.py
+ * Use importlib.metadata to get version from package metadata
+ * Added integration tests with sample data
+ * Added tests for `cluster_gene_trends` function
+ * Improved tests to handle differences between pandas versions
  * Integrated changes from upstream versions 1.3.3 through 1.3.6:
    * `run_magic_imputation` now has a boolean parameter `sparse` to control output sparsity
    * **bugfix**: `run_local_variability` for dense expression arrays now runs much faster and more accurate
-   * avoid division by zero in `select_branch_cells` for very small datasets
-   * make branch selection robust against NaNs
-   * do not plot unclustered trends (NaN cluster) in `plot_gene_trend_clusters`
-   * optional progress bar with `progress=True` in `palantir.utils.run_local_variability`
-   * avoid NaN in local variability output
-   * compatibility with `scanpy>=1.10.0`
-   * use importlib.metadata to get version from package metadata
-   * fix compatibility issues with newer pandas versions
-   * update Series indexing to use `.iloc[]` or `.loc[]` instead of `[]` syntax
-   * properly handle `NaN` values in cluster operations
+   * Avoid division by zero in `select_branch_cells` for very small datasets
+   * Make branch selection robust against NaNs
+   * Do not plot unclustered trends (NaN cluster) in `plot_gene_trend_clusters`
+   * Optional progress bar with `progress=True` in `palantir.utils.run_local_variability`
+   * Avoid NaN in local variability output
+   * Fix compatibility issues with newer pandas versions
+   * Update Series indexing to use `.iloc[]` or `.loc[]` instead of `[]` syntax
+   * Properly handle `NaN` values in cluster operations
+   * Compatibility with `scanpy>=1.10.0`
  
  ### Version 1.3.6
  * `run_magic_imputation` now has a boolean parameter `sparse` to control output sparsity
  * **bugfix**: `run_local_variability` for dense expression arrays now runs much faster and more accurate
 
  ### Version 1.3.4
- * avoid division by zero in `select_branch_cells` for very small datasets
- * make branch selection robust against NaNs
- * do not plot unclustered trends (NaN cluster) in `plot_gene_trend_clusters`
+ * Avoid division by zero in `select_branch_cells` for very small datasets
+ * Make branch selection robust against NaNs
+ * Do not plot unclustered trends (NaN cluster) in `plot_gene_trend_clusters`
 
  ### Version 1.3.3
- * optional progress bar with `progress=True` in `palantir.utils.run_local_variability`
- * avoid NaN in local variability output
- * compatibility with `scanpy>=1.10.0`
- * removed redundant version specification in version.py
- * use importlib.metadata to get version from package metadata
- * fix branch selection algorithm for small datasets
- * fix `select_branch_cells` division by zero error
- * add integration tests with sample data
- * add tests for `cluster_gene_trends` function
- * fix compatibility issues with newer pandas versions
- * update Series indexing to use `.iloc[]` or `.loc[]` instead of `[]` syntax
- * improve tests to handle differences between pandas versions
- * properly handle `NaN` values in cluster operations
+ * Optional progress bar with `progress=True` in `palantir.utils.run_local_variability`
+ * Avoid NaN in local variability output
+ * Compatibility with `scanpy>=1.10.0`
  ### Version 1.3.2
  * require `python>=3.8`
  * implement CI for testing
