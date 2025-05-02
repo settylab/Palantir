@@ -1,4 +1,4 @@
-from typing import Iterable, Union, Tuple, List
+from typing import Iterable, Union, Tuple, List, Dict, Generator, Optional
 from warnings import warn
 import pandas as pd
 import numpy as np
@@ -10,6 +10,7 @@ from scipy.sparse import csr_matrix, find, issparse, hstack
 from scipy.sparse.linalg import eigs
 import mellon
 import scanpy as sc
+from anndata import AnnData
 
 from .core import run_palantir
 
@@ -17,13 +18,13 @@ from .validation import _validate_obsm_key
 
 
 class CellNotFoundException(Exception):
-    """Exception raised when no valid component is found for the provided cell type."""
+    """Exception raised when no cell could be determined by the used method."""
 
     pass
 
 
 def run_pca(
-    data: Union[pd.DataFrame, sc.AnnData],
+    data: Union[pd.DataFrame, AnnData],
     n_components: int = 300,
     use_hvg: bool = True,
     pca_key: str = "X_pca",
@@ -33,24 +34,24 @@ def run_pca(
 
     Parameters
     ----------
-    data : Union[pd.DataFrame, sc.AnnData]
-        Dataframe of cells X genes or sc.AnnData object.
+    data : Union[pd.DataFrame, AnnData]
+        Dataframe of cells X genes or AnnData object.
         Typically multi-scale space diffusion components.
     n_components : int, optional
         Number of principal components. Default is 300.
     use_hvg : bool, optional
         Whether to use highly variable genes only for PCA. Default is True.
     pca_key : str, optional
-        Key to store the PCA projections in obsm of data if it is a sc.AnnData object. Default is 'X_pca'.
+        Key to store the PCA projections in obsm of data if it is a AnnData object. Default is 'X_pca'.
 
     Returns
     -------
     Union[Tuple[pd.DataFrame, np.array], None]
         Tuple of PCA projections of the data and the explained variance.
-        If sc.AnnData is passed as data, the results are also written to the input object and None is returned.
+        If AnnData is passed as data, the results are also written to the input object and None is returned.
     """
     if isinstance(data, pd.DataFrame):
-        ad = sc.AnnData(data.values)
+        ad = AnnData(data.values)
     else:
         ad = data
         if pca_key != "X_pca":
@@ -63,7 +64,7 @@ def run_pca(
         n_comps = n_components
     else:
         l_n_comps = min(1000, ad.n_obs - 1, ad.n_vars - 1)
-        sc.pp.pca(ad, n_comps=l_n_comps, use_highly_variable=True, zero_center=False)
+        sc.pp.pca(ad, n_comps=l_n_comps, mask_var="highly_variable", zero_center=False)
         try:
             n_comps = np.where(np.cumsum(ad.uns["pca"]["variance_ratio"]) > 0.85)[0][0]
         except IndexError:
@@ -71,9 +72,12 @@ def run_pca(
 
     # Rerun with selection number of components
     n_comps = min(n_comps, ad.n_obs - 1, ad.n_vars - 1)
-    sc.pp.pca(ad, n_comps=n_comps, use_highly_variable=use_hvg, zero_center=False)
+    kwargs = dict()
+    if use_hvg:
+        kwargs["mask_var"] = "highly_variable"
+    sc.pp.pca(ad, n_comps=n_comps, zero_center=False, **kwargs)
 
-    if isinstance(data, sc.AnnData):
+    if isinstance(data, AnnData):
         data.obsm[pca_key] = ad.obsm["X_pca"]
         if pca_key != "X_pca":
             del data.obsm["X_pca"]
@@ -85,7 +89,7 @@ def run_pca(
 
 
 def run_low_density_variability(
-    ad: sc.AnnData,
+    ad: AnnData,
     cell_mask: Union[str, np.ndarray, List[str], pd.Series, pd.Index] = "branch_masks",
     density_key: str = "mellon_log_density",
     localvar_key: str = "local_variability",
@@ -96,7 +100,7 @@ def run_low_density_variability(
 
     Parameters
     ----------
-    ad : sc.AnnData
+    ad : AnnData
         AnnData object containing the gene expression data and pseudotime.
     cell_mask : str, np.ndarray, list of str, pd.Series, pd.Index, optional
         Key to access the mask matrix in the obsm or obs attributes of the AnnData object.
@@ -173,7 +177,7 @@ def run_low_density_variability(
 
 
 def run_density(
-    ad: sc.AnnData,
+    ad: AnnData,
     repr_key: str = "DM_EigenVectors",
     density_key: str = "mellon_log_density",
     **kwargs,
@@ -191,10 +195,10 @@ def run_density(
 
     Parameters
     ----------
-    ad : sc.AnnData
+    ad : AnnData
         AnnData object containing the gene expression data and pseudotime.
     repr_key : str, optional
-        Key to retrieve cell-state representation from the sc.AnnData object. Default is 'DM_EigenVectors'.
+        Key to retrieve cell-state representation from the AnnData object. Default is 'DM_EigenVectors'.
     density_key : str, optional
         Key under which the computed density values are stored in the obs of the AnnData object.
         Default is 'mellon_log_density'.
@@ -227,17 +231,15 @@ def run_density(
     log_density = np.asarray(dest.fit_predict(X))
 
     ad.obs[density_key] = log_density
-    ad.obs[density_key + "_clipped"] = np.clip(
-        log_density, *np.quantile(log_density, [0.01, 1])
-    )
+    ad.obs[density_key + "_clipped"] = np.clip(log_density, *np.quantile(log_density, [0.01, 1]))
     ad.uns[density_key + "_predictor"] = dest.predict.to_dict()
 
     return log_density
 
 
 def run_density_evaluation(
-    in_ad: sc.AnnData,
-    out_ad: sc.AnnData,
+    in_ad: AnnData,
+    out_ad: AnnData,
     predictor_key: str = "mellon_log_density_predictor",
     repr_key: str = "DM_EigenVectors",
     density_key: str = "cross_log_density",
@@ -248,9 +250,9 @@ def run_density_evaluation(
 
     Parameters
     ----------
-    in_ad : sc.AnnData
+    in_ad : AnnData
         AnnData object containing the gene expression data and the serialized predictor.
-    out_ad : sc.AnnData
+    out_ad : AnnData
         AnnData object containing the gene expression data and representations to be evaluated.
     predictor_key : str, optional
         Key to access the predictor in the uns of the `in_ad` AnnData object. Default is 'mellon_log_density_predictor'.
@@ -296,28 +298,31 @@ def run_density_evaluation(
 
 
 def compute_kernel(
-    data: Union[pd.DataFrame, sc.AnnData],
+    data: Union[pd.DataFrame, AnnData],
     knn: int = 30,
     alpha: float = 0,
     pca_key: str = "X_pca",
     kernel_key: str = "DM_Kernel",
+    metric: str = "euclidean"
 ) -> csr_matrix:
     """
     Compute the adaptive anisotropic diffusion kernel.
 
     Parameters
     ----------
-    data : Union[pd.DataFrame, sc.AnnData]
+    data : Union[pd.DataFrame, AnnData]
         Data points (rows) in a feature space (columns) for pd.DataFrame.
-        For sc.AnnData, it uses the .X attribute.
+        For AnnData, it uses the .X attribute.
     knn : int
         Number of nearest neighbors for adaptive kernel calculation. Default is 30.
     alpha : float
         Normalization parameter for the diffusion operator. Default is 0.
     pca_key : str, optional
-        Key to retrieve PCA projections from data if it is a sc.AnnData object. Default is 'X_pca'.
+        Key to retrieve PCA projections from data if it is a AnnData object. Default is 'X_pca'.
     kernel_key : str, optional
-        Key to store the kernel in obsp of data if it is a sc.AnnData object. Default is 'DM_Kernel'.
+        Key to store the kernel in obsp of data if it is a AnnData object. Default is 'DM_Kernel'.
+    metric: str, optional
+        Distance metric to use for `sc.pp.neighbors`. Default is 'euclidean'.
 
     Returns
     -------
@@ -325,23 +330,21 @@ def compute_kernel(
         Computed kernel matrix.
     """
 
-    # If the input is sc.AnnData, convert it to a DataFrame
-    if isinstance(data, sc.AnnData):
+    # If the input is AnnData, convert it to a DataFrame
+    if isinstance(data, AnnData):
         data_df = pd.DataFrame(data.obsm[pca_key], index=data.obs_names)
     else:
         data_df = data
 
     N = data_df.shape[0]
-    temp = sc.AnnData(data_df.values)
-    sc.pp.neighbors(temp, n_pcs=0, n_neighbors=knn)
+    temp = AnnData(data_df.values)
+    sc.pp.neighbors(temp, n_pcs=0, n_neighbors=knn, metric=metric)
     kNN = temp.obsp["distances"]
 
     adaptive_k = int(np.floor(knn / 3))
     adaptive_std = np.zeros(N)
     for i in np.arange(N):
-        adaptive_std[i] = np.sort(kNN.data[kNN.indptr[i] : kNN.indptr[i + 1]])[
-            adaptive_k - 1
-        ]
+        adaptive_std[i] = np.sort(kNN.data[kNN.indptr[i] : kNN.indptr[i + 1]])[adaptive_k - 1]
 
     x, y, dists = find(kNN)
     dists /= adaptive_std[x]
@@ -355,7 +358,7 @@ def compute_kernel(
         mat = csr_matrix((D, (range(N), range(N))), shape=[N, N])
         kernel = mat.dot(kernel).dot(mat)
 
-    if isinstance(data, sc.AnnData):
+    if isinstance(data, AnnData):
         data.obsp[kernel_key] = kernel
 
     return kernel
@@ -363,7 +366,7 @@ def compute_kernel(
 
 def diffusion_maps_from_kernel(
     kernel: csr_matrix, n_components: int = 10, seed: Union[int, None] = 0
-):
+) -> Dict[str, Union[csr_matrix, pd.DataFrame, pd.Series]]:
     """
     Compute the diffusion map given a kernel matrix.
 
@@ -378,8 +381,11 @@ def diffusion_maps_from_kernel(
 
     Returns
     -------
-    dict
-        T-matrix (T), Diffusion components (EigenVectors) and corresponding eigenvalues (EigenValues).
+    Dict[str, Union[csr_matrix, pd.DataFrame, pd.Series]]
+        Dictionary containing:
+        - T: Transition matrix (csr_matrix)
+        - EigenVectors: Diffusion components (pd.DataFrame)
+        - EigenValues: Corresponding eigenvalues (pd.Series)
     """
     N = kernel.shape[0]
     D = np.ravel(kernel.sum(axis=1))
@@ -403,7 +409,7 @@ def diffusion_maps_from_kernel(
 
 
 def run_diffusion_maps(
-    data: Union[pd.DataFrame, sc.AnnData],
+    data: Union[pd.DataFrame, AnnData],
     n_components: int = 10,
     knn: int = 30,
     alpha: float = 0,
@@ -413,15 +419,16 @@ def run_diffusion_maps(
     sim_key: str = "DM_Similarity",
     eigval_key: str = "DM_EigenValues",
     eigvec_key: str = "DM_EigenVectors",
-):
+    metric: str = 'euclidean',
+) -> Dict[str, Union[csr_matrix, pd.DataFrame, pd.Series]]:
     """
     Run Diffusion maps using the adaptive anisotropic kernel.
 
     Parameters
     ----------
-    data : Union[pd.DataFrame, sc.AnnData]
+    data : Union[pd.DataFrame, AnnData]
         PCA projections of the data or adjacency matrix.
-        If sc.AnnData is passed, its obsm[pca_key] is used and the result is written to
+        If AnnData is passed, its obsm[pca_key] is used and the result is written to
         its obsp[kernel_key], obsm[eigvec_key], and uns[eigval_key].
     n_components : int, optional
         Number of diffusion components. Default is 10.
@@ -433,34 +440,39 @@ def run_diffusion_maps(
         Numpy random seed, randomized if None, set to an arbitrary integer for reproducibility.
         Default is 0.
     pca_key : str, optional
-        Key to retrieve PCA projections from data if it is a sc.AnnData object. Default is 'X_pca'.
+        Key to retrieve PCA projections from data if it is a AnnData object. Default is 'X_pca'.
     kernel_key : str, optional
-        Key to store the kernel in obsp of data if it is a sc.AnnData object. Default is 'DM_Kernel'.
+        Key to store the kernel in obsp of data if it is a AnnData object. Default is 'DM_Kernel'.
     sim_key : str, optional
-        Key to store the similarity in obsp of data if it is a sc.AnnData object. Default is 'DM_Similarity'.
+        Key to store the similarity in obsp of data if it is a AnnData object. Default is 'DM_Similarity'.
     eigval_key : str, optional
-        Key to store the EigenValues in uns of data if it is a sc.AnnData object. Default is 'DM_EigenValues'.
+        Key to store the EigenValues in uns of data if it is a AnnData object. Default is 'DM_EigenValues'.
     eigvec_key : str, optional
-        Key to store the EigenVectors in obsm of data if it is a sc.AnnData object. Default is 'DM_EigenVectors'.
+        Key to store the EigenVectors in obsm of data if it is a AnnData object. Default is 'DM_EigenVectors'.
+    metric: str, optional
+        Distance metric to use for computing kernel. Default is 'euclidean'.
 
     Returns
     -------
-    dict
-        Diffusion components, corresponding eigen values and the diffusion operator.
-        If sc.AnnData is passed as data, these results are also written to the input object
-        and returned.
+    Dict[str, Union[csr_matrix, pd.DataFrame, pd.Series]]
+        Dictionary containing:
+        - kernel: Computed kernel matrix
+        - T: Transition matrix
+        - EigenVectors: Diffusion components
+        - EigenValues: Corresponding eigenvalues
+        If AnnData is passed as data, these results are also written to the input object.
     """
 
-    if isinstance(data, sc.AnnData):
+    if isinstance(data, AnnData):
         data_df = pd.DataFrame(data.obsm[pca_key], index=data.obs_names)
     else:
         data_df = data
 
     if not isinstance(data_df, pd.DataFrame) and not issparse(data_df):
-        raise ValueError("'data_df' should be a pd.DataFrame or sc.AnnData")
+        raise ValueError("'data_df' should be a pd.DataFrame or AnnData")
 
     if not issparse(data_df):
-        kernel = compute_kernel(data_df, knn, alpha)
+        kernel = compute_kernel(data_df, knn, alpha, metric = metric)
     else:
         warn(
             "'data' is a sparse matrix and will be interpreted as kernel. "
@@ -475,7 +487,7 @@ def run_diffusion_maps(
     if not issparse(data_df):
         res["EigenVectors"].index = data_df.index
 
-    if isinstance(data, sc.AnnData):
+    if isinstance(data, AnnData):
         data.obsp[kernel_key] = res["kernel"]
         data.obsp[sim_key] = res["T"]
         data.obsm[eigvec_key] = res["EigenVectors"].values
@@ -484,23 +496,66 @@ def run_diffusion_maps(
     return res
 
 
-def _dot_helper_func(x, y):
+def _dot_helper_func(x: csr_matrix, y: Union[np.ndarray, csr_matrix]) -> np.ndarray:
+    """Helper function to compute dot product of sparse matrices.
+
+    Parameters
+    ----------
+    x : csr_matrix
+        First sparse matrix.
+    y : Union[np.ndarray, csr_matrix]
+        Second matrix or array to multiply.
+
+    Returns
+    -------
+    np.ndarray
+        Result of the dot product.
+    """
     return x.dot(y)
 
 
-def _local_var_helper(expressions, distances):
+def _local_var_helper(
+    expressions: Union[np.ndarray, csr_matrix], distances: csr_matrix, eps: float = 1e-16
+) -> Generator[np.ndarray, None, None]:
+    """Helper function to compute local variability for gene expression data.
+
+    Calculates maximum change rates of gene expression in local neighborhoods.
+
+    Parameters
+    ----------
+    expressions : Union[np.ndarray, csr_matrix]
+        Gene expression matrix, cells x genes.
+    distances : csr_matrix
+        Distance matrix between cells.
+    eps : float, optional
+        A small value to prevent division by zero. Default is 1e-16.
+
+    Returns
+    -------
+    Generator[np.ndarray, None, None]
+        Generator yielding maximum change rate vectors for each cell.
+
+    Raises
+    ------
+    ValueError
+        If expression data cannot be processed for a specific cell.
+    """
     if hasattr(expressions, "todense"):
 
         def cast(x):
             return x.todense()
 
-        issparse = True
     else:
 
         def cast(x):
             return x
 
+    if not hasattr(distances, "getrow"):
+        warn("The passed distance matrix is not sparse. Pass a sparse matrix for improved runtime.")
         issparse = False
+    else:
+        issparse = True
+
     for cell in range(expressions.shape[0]):
         neighbors = distances.getrow(cell).indices if issparse else slice(None)
         try:
@@ -510,15 +565,17 @@ def _local_var_helper(expressions, distances):
         except ValueError:
             raise ValueError(f"This cell caused the error: {cell}")
         expr_distance = np.sqrt(np.sum(expr_deltas**2, axis=1, keepdims=True))
-        change_rate = expr_deltas / expr_distance
+        change_rate = expr_deltas / (expr_distance + eps)
         yield np.max(change_rate**2, axis=0)
 
 
 def run_local_variability(
-    ad: sc.AnnData,
+    ad: AnnData,
     expression_key: str = "MAGIC_imputed_data",
     distances_key: str = "distances",
     localvar_key: str = "local_variability",
+    progress: bool = False,
+    eps: float = 1e-16,
 ) -> np.ndarray:
     """
     Compute local gene variability scores for each cell.
@@ -528,7 +585,7 @@ def run_local_variability(
 
     Parameters
     ----------
-    ad : sc.AnnData
+    ad : AnnData
         AnnData object containing the gene expression data and pseudotime.
     expression_key : str, optional
         Key to access the gene expression data in the layers of the AnnData object.
@@ -539,6 +596,10 @@ def run_local_variability(
     localvar_key : str, optional
         Key under which the computed local variability matrix is stored in the layers of the AnnData object.
         Default is 'local_variability'.
+    progress : bool, optional
+        Show progress bar. Requires tqdm to be installed. Default is False.
+    eps : float, optional
+        A small value preventing division by 0. Defaults to 1e-16.
 
     Returns
     -------
@@ -557,7 +618,17 @@ def run_local_variability(
         raise KeyError(f"'{distances_key}' not found in .obsp.")
     X_dists = ad.obsp[distances_key]
 
-    local_variability = np.stack(list(_local_var_helper(X, X_dists)))
+    local_var_generator = _local_var_helper(X, X_dists, eps=eps)
+    if progress is True:
+        try:
+            from fastprogress.fastprogress import progress_bar
+        except ModuleNotFoundError:
+            raise Exception(
+                "Showing the progress bar requires the python module `fastprogress` to be installed."
+            )
+        local_var_generator = progress_bar(local_var_generator, total=X.shape[0])
+
+    local_variability = np.stack(list(local_var_generator))
 
     ad.layers[localvar_key] = local_variability
 
@@ -565,48 +636,51 @@ def run_local_variability(
 
 
 def run_magic_imputation(
-    data: Union[np.ndarray, pd.DataFrame, sc.AnnData, csr_matrix],
+    data: Union[np.ndarray, pd.DataFrame, AnnData, csr_matrix],
     dm_res: Union[dict, None] = None,
     n_steps: int = 3,
     sim_key: str = "DM_Similarity",
     expression_key: str = None,
     imputation_key: str = "MAGIC_imputed_data",
     n_jobs: int = -1,
-) -> Union[pd.DataFrame, None, csr_matrix]:
+    sparse: bool = True,
+    clip_threshold: float = 1e-2,
+) -> Union[pd.DataFrame, None, csr_matrix, np.ndarray]:
     """
     Run MAGIC imputation on the data.
 
     Parameters
     ----------
-    data : Union[np.ndarray, pd.DataFrame, sc.AnnData, csr_matrix]
-        Array or DataFrame of cells X genes, sc.AnnData object, or a sparse csr_matrix.
+    data : Union[np.ndarray, pd.DataFrame, AnnData, csr_matrix]
+        Array or DataFrame of cells X genes, AnnData object, or a sparse csr_matrix.
     dm_res : Union[dict, None], optional
         Diffusion map results from run_diffusion_maps.
-        If None and data is a sc.AnnData object, its obsp[kernel_key] is used. Default is None.
+        If None and data is a AnnData object, its obsp[kernel_key] is used. Default is None.
     n_steps : int, optional
         Number of steps in the diffusion operator. Default is 3.
     expression_key : str, optional
         Key to access the gene expression data in the layers of the AnnData object.
         If None, uses raw expression data in .X. Default is None.
     sim_key : str, optional
-        Key to access the similarity in obsp of data if it is a sc.AnnData object.
+        Key to access the similarity in obsp of data if it is a AnnData object.
         Default is 'DM_Similarity'.
     imputation_key : str, optional
-        Key to store the imputed data in layers of data if it is a sc.AnnData object. Default is 'MAGIC_imputed_data'.
+        Key to store the imputed data in layers of data if it is a AnnData object. Default is 'MAGIC_imputed_data'.
     n_jobs : int, optional
         Number of cores to use for parallel processing. If -1, all available cores are used. Default is -1.
 
     Returns
     -------
-    Union[np.ndarray, pd.DataFrame, None, csr_matrix]
-        Imputed data matrix. If sc.AnnData is passed as data, the result is written to its layers[imputation_key].
+    Union[pd.DataFrame, None, csr_matrix, np.ndarray]
+        Imputed data matrix. Return type matches input type:
+        - For numpy arrays or csr_matrix, returns numpy array or csr_matrix.
+        - For pandas DataFrame, returns pandas DataFrame.
+        - For AnnData, stores result in the object and returns numpy array or csr_matrix.
     """
-    if isinstance(data, sc.AnnData):
+    if isinstance(data, AnnData):
         if expression_key is not None:
             if expression_key not in data.layers.keys():
-                raise ValueError(
-                    f"expression_key '{expression_key}' not found in .layers."
-                )
+                raise ValueError(f"expression_key '{expression_key}' not found in .layers.")
             X = data.layers[expression_key]
         else:
             X = data.X
@@ -621,10 +695,8 @@ def run_magic_imputation(
 
     if dm_res is not None:
         T = dm_res["T"]
-    elif not isinstance(data, sc.AnnData):
-        raise ValueError(
-            "Diffusion map results (dm_res) must be provided if data is not sc.AnnData"
-        )
+    elif not isinstance(data, AnnData):
+        raise ValueError("Diffusion map results (dm_res) must be provided if data is not AnnData")
 
     # Preparing the operator
     T_steps = (T**n_steps).astype(np.float32)
@@ -640,29 +712,49 @@ def run_magic_imputation(
 
     # Stack the results together
     if issparse(X):
-        imputed_data = hstack(res).todense()
+        imputed_data = hstack(res)
+        if not sparse:
+            imputed_data = imputed_data.todense()
     else:
         imputed_data = np.hstack(res)
 
-    # Set small values to zero
-    imputed_data[imputed_data < 1e-2] = 0
+    # Set small values to zero based on sparse parameter
+    if sparse:
+        if issparse(imputed_data):
+            imputed_data.data[imputed_data.data < clip_threshold] = 0
+            imputed_data.eliminate_zeros()
+        else:
+            imputed_data = np.where(imputed_data < clip_threshold, 0, imputed_data)
+            imputed_data = csr_matrix(imputed_data)
+    else:
+        # For dense arrays, still clip very small values
+        if not issparse(imputed_data):
+            imputed_data[imputed_data < clip_threshold] = 0
 
     # Clean up
     gc.collect()
 
-    if isinstance(data, sc.AnnData):
-        data.layers[imputation_key] = np.asarray(imputed_data)
+    # Store result in AnnData if input was AnnData
+    if isinstance(data, AnnData):
+        if issparse(imputed_data):
+            data.layers[imputation_key] = imputed_data
+        else:
+            data.layers[imputation_key] = np.asarray(imputed_data)
 
+    # Format return value based on input type
     if isinstance(data, pd.DataFrame):
-        imputed_data = pd.DataFrame(
-            imputed_data, index=data.index, columns=data.columns
-        )
+        if issparse(imputed_data):
+            imputed_data = pd.DataFrame(
+                imputed_data.todense(), index=data.index, columns=data.columns
+            )
+        else:
+            imputed_data = pd.DataFrame(imputed_data, index=data.index, columns=data.columns)
 
     return imputed_data
 
 
 def determine_multiscale_space(
-    dm_res: Union[dict, sc.AnnData],
+    dm_res: Union[dict, AnnData],
     n_eigs: Union[int, None] = None,
     eigval_key: str = "DM_EigenValues",
     eigvec_key: str = "DM_EigenVectors",
@@ -673,26 +765,26 @@ def determine_multiscale_space(
 
     Parameters
     ----------
-    dm_res : Union[dict, sc.AnnData]
+    dm_res : Union[dict, AnnData]
         Diffusion map results from run_diffusion_maps.
-        If sc.AnnData is passed, its uns[eigval_key] and obsm[eigvec_key] are used.
+        If AnnData is passed, its uns[eigval_key] and obsm[eigvec_key] are used.
     n_eigs : Union[int, None], optional
         Number of eigen vectors to use. If None is specified, the number
         of eigen vectors will be determined using the eigen gap. Default is None.
     eigval_key : str, optional
-        Key to retrieve EigenValues from dm_res if it is a sc.AnnData object. Default is 'DM_EigenValues'.
+        Key to retrieve EigenValues from dm_res if it is a AnnData object. Default is 'DM_EigenValues'.
     eigvec_key : str, optional
-        Key to retrieve EigenVectors from dm_res if it is a sc.AnnData object. Default is 'DM_EigenVectors'.
+        Key to retrieve EigenVectors from dm_res if it is a AnnData object. Default is 'DM_EigenVectors'.
     out_key : str, optional
-        Key to store the result in obsm of dm_res if it is a sc.AnnData object. Default is 'DM_EigenVectors_multiscaled'.
+        Key to store the result in obsm of dm_res if it is a AnnData object. Default is 'DM_EigenVectors_multiscaled'.
 
     Returns
     -------
     Union[pd.DataFrame, None]
-        Multi-scale data matrix. If sc.AnnData is passed as dm_res, the result
+        Multi-scale data matrix. If AnnData is passed as dm_res, the result
         is written to its obsm[out_key] and None is returned.
     """
-    if isinstance(dm_res, sc.AnnData):
+    if isinstance(dm_res, AnnData):
         eigenvectors = dm_res.obsm[eigvec_key]
         if not isinstance(eigenvectors, pd.DataFrame):
             eigenvectors = pd.DataFrame(eigenvectors, index=dm_res.obs_names)
@@ -704,12 +796,15 @@ def determine_multiscale_space(
         dm_res_dict = dm_res
 
     if not isinstance(dm_res_dict, dict):
-        raise ValueError("'dm_res' should be a dict or a sc.AnnData instance")
+        raise ValueError("'dm_res' should be a dict or a AnnData instance")
     if n_eigs is None:
         vals = np.ravel(dm_res_dict["EigenValues"])
         n_eigs = np.argsort(vals[: (len(vals) - 1)] - vals[1:])[-1] + 1
         if n_eigs < 3:
             n_eigs = np.argsort(vals[: (len(vals) - 1)] - vals[1:])[-2] + 1
+        if n_eigs < 3:
+            # Fix for #39
+            n_eigs = 3
 
     # Scale the data
     use_eigs = list(range(1, n_eigs))
@@ -717,25 +812,33 @@ def determine_multiscale_space(
     data = dm_res_dict["EigenVectors"].values[:, use_eigs] * (eig_vals / (1 - eig_vals))
     data = pd.DataFrame(data, index=dm_res_dict["EigenVectors"].index)
 
-    if isinstance(dm_res, sc.AnnData):
+    if isinstance(dm_res, AnnData):
         dm_res.obsm[out_key] = data.values
 
     return data
 
 
-def _return_cell(ec, obs_names, celltype, mm, dcomp):
+def _return_cell(ec: int, obs_names: pd.Index, celltype: str, mm: str, dcomp: int) -> str:
     """
     Helper function to print and return the early cell.
 
-    Args:
-        ec (int): Index of the early cell.
-        obs_names (list): Names of cells.
-        celltype (str): The cell type of interest.
-        mm (str): Max/min status of the diffusion component.
-        dcomp (int): Index of diffusion component.
+    Parameters
+    ----------
+    ec : int
+        Index of the early cell.
+    obs_names : pd.Index
+        Names of cells.
+    celltype : str
+        The cell type of interest.
+    mm : str
+        Max/min status of the diffusion component.
+    dcomp : int
+        Index of diffusion component.
 
-    Returns:
-        str: Name of the early cell.
+    Returns
+    -------
+    str
+        Name of the early cell.
     """
     early_cell = obs_names[ec]
     print(
@@ -746,7 +849,7 @@ def _return_cell(ec, obs_names, celltype, mm, dcomp):
 
 
 def early_cell(
-    ad: sc.AnnData,
+    ad: AnnData,
     celltype: str,
     celltype_column: str = "celltype",
     eigvec_key: str = "DM_EigenVectors_multiscaled",
@@ -758,7 +861,7 @@ def early_cell(
 
     Parameters
     ----------
-    ad : sc.AnnData
+    ad : AnnData
         Annotated data matrix.
     celltype : str
         The specific cell type of interest for determining the early cell.
@@ -769,7 +872,9 @@ def early_cell(
         Key to access multiscale space diffusion components from obsm of ad.
         Default is 'DM_EigenVectors_multiscaled'.
     fallback_seed : int, optional
-        Seed for random number generator in fallback method. If not specified, no seed is used.
+        Seed for random number generator in fallback method. If not specified,
+        the fallback method is not applied and CellNotFoundException error is
+        raised instead.
         Default is None.
 
     Returns
@@ -782,8 +887,8 @@ def early_cell(
     CellNotFoundException
         If no valid cell of the specified type can be found at the extremes of the diffusion map.
     """
-    if not isinstance(ad, sc.AnnData):
-        raise ValueError("'ad' should be an instance of sc.AnnData")
+    if not isinstance(ad, AnnData):
+        raise ValueError("'ad' should be an instance of AnnData")
 
     if eigvec_key not in ad.obsm:
         raise ValueError(
@@ -799,27 +904,23 @@ def early_cell(
         raise ValueError(f"celltype_column='{celltype_column}' should be a string")
 
     if celltype_column not in ad.obs.columns:
-        raise ValueError(
-            f"celltype_column='{celltype_column}' should be a column of ad.obs."
-        )
+        raise ValueError(f"celltype_column='{celltype_column}' should be a column of ad.obs.")
 
     if not isinstance(celltype, str):
         raise ValueError("celltype should be a string")
 
     if celltype not in ad.obs[celltype_column].values:
-        raise ValueError(
-            f"Celltype '{celltype}' not found in ad.obs['{celltype_column}']."
-        )
+        raise ValueError(f"Celltype '{celltype}' not found in ad.obs['{celltype_column}'].")
 
     if fallback_seed is not None and not isinstance(fallback_seed, int):
         raise ValueError("'fallback_seed' should be an integer")
 
     for dcomp in range(eigenvectors.shape[1]):
         ec = eigenvectors[:, dcomp].argmax()
-        if ad.obs[celltype_column][ec] == celltype:
+        if ad.obs[celltype_column].iloc[ec] == celltype:
             return _return_cell(ec, ad.obs_names, celltype, "max", dcomp)
         ec = eigenvectors[:, dcomp].argmin()
-        if ad.obs[celltype_column][ec] == celltype:
+        if ad.obs[celltype_column].iloc[ec] == celltype:
             return _return_cell(ec, ad.obs_names, celltype, "min", dcomp)
 
     if fallback_seed is not None:
@@ -838,7 +939,7 @@ def early_cell(
 
 
 def fallback_terminal_cell(
-    ad: sc.AnnData,
+    ad: AnnData,
     celltype: str,
     celltype_column: str = "anno",
     eigvec_key: str = "DM_EigenVectors_multiscaled",
@@ -850,7 +951,7 @@ def fallback_terminal_cell(
 
     Parameters
     ----------
-    ad : sc.AnnData
+    ad : AnnData
         Annotated data matrix.
     celltype : str
         The specific cell type of interest for determining the terminal cell.
@@ -871,7 +972,7 @@ def fallback_terminal_cell(
 
     """
     other_cells = ad.obs_names[ad.obs[celltype_column] != celltype]
-    fake_early_cell = other_cells.to_series().sample(1, random_state=seed)[0]
+    fake_early_cell = other_cells.to_series().sample(1, random_state=seed).iloc[0]
     pr_res = run_palantir(
         ad,
         fake_early_cell,
@@ -890,7 +991,7 @@ def fallback_terminal_cell(
 
 
 def find_terminal_states(
-    ad: sc.AnnData,
+    ad: AnnData,
     celltypes: Iterable,
     celltype_column: str = "celltype",
     eigvec_key: str = "DM_EigenVectors_multiscaled",
@@ -905,7 +1006,7 @@ def find_terminal_states(
 
     Parameters
     ----------
-    ad : sc.AnnData
+    ad : AnnData
         Annotated data matrix from Scanpy. It should contain computed diffusion maps.
     celltypes : Iterable
         An iterable such as a list or tuple of cell type names for which terminal states should be identified.
@@ -916,8 +1017,10 @@ def find_terminal_states(
         Key to access multiscale space diffusion components from obsm of ad.
         Default is 'DM_EigenVectors_multiscaled'.
     fallback_seed : int, optional
-        Seed for the random number generator used in the fallback method. Defaults to None, in which case
-        the random number generator will be randomly seeded.
+        Seed for random number generator in fallback method. If not specified,
+        the fallback method is not applied and CellNotFoundException error is
+        raised instead.
+        Defaults to None.
 
     Returns
     -------

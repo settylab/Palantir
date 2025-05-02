@@ -4,97 +4,59 @@
 Palantir
 ------
 
-Palantir is an algorithm to align cells along differentiation trajectories. Palantir models differentiation as a stochastic process where stem cells differentiate to terminally differentiated cells by a series of steps through a low dimensional phenotypic manifold. Palantir effectively captures the continuity in cell states and the stochasticity in cell fate determination. Palantir has been designed to work with multidimensional single cell data from diverse technologies such as Mass cytometry and single cell RNA-seq. 
+Palantir is an algorithm to align cells along differentiation trajectories. Palantir models differentiation as a stochastic process where stem cells differentiate to terminally differentiated cells by a series of steps through a low dimensional phenotypic manifold. Palantir effectively captures the continuity in cell states and the stochasticity in cell fate determination. Palantir has been designed to work with multidimensional single cell data from diverse technologies such as Mass cytometry and single cell RNA-seq.
+
+## Installation
+Palantir has been implemented in Python3 and can be installed using:
+
+### Using pip
+```sh
+pip install palantir
+```
+
+### Using conda, mamba, or micromamba from the bioconda channel
+You can also install Palantir via conda, mamba, or micromamba from the bioconda channel:
+
+#### Using conda
+```sh
+conda install -c conda-forge -c bioconda palantir
+```
+
+#### Using mamba
+```sh
+mamba install -c conda-forge -c bioconda palantir
+```
+
+#### Using micromamba
+```sh
+micromamba install -c conda-forge -c bioconda palantir
+```
+
+These methods ensure that all dependencies are resolved and installed efficiently.
 
 
-#### Installation and dependencies
-1. Palantir has been implemented in Python3 and can be installed using:
+## Usage
 
-        pip install palantir
+A tutorial on Palantir usage and results visualization for single cell RNA-seq
+data can be found in this notebook:
+https://github.com/dpeerlab/Palantir/blob/master/notebooks/Palantir_sample_notebook.ipynb
 
-2. Palantir depends on a number of `python3` packages available on pypi and these dependencies are listed in `setup.py`
+More tutorials and a documentation of all the Palantir components can be found
+here: https://palantir.readthedocs.io
 
-    All the dependencies will be automatically installed using the above commands
+## Processed data and metadata
 
-3. To uninstall:
-		
-		pip uninstall palantir
-		
-4. Palantir can also be used with [**Scanpy**](https://github.com/theislab/scanpy). It is fully integrated into Scanpy, and can be found under Scanpy's external modules ([link](https://scanpy.readthedocs.io/en/latest/api/scanpy.external.html#external-api))
+`scanpy anndata` objects are available for download for the three replicates generated in the manuscript:
+- [Replicate 1 (Rep1)](https://s3.amazonaws.com/dp-lab-data-public/palantir/human_cd34_bm_rep1.h5ad)
+- [Replicate 2 (Rep2)](https://s3.amazonaws.com/dp-lab-data-public/palantir/human_cd34_bm_rep2.h5ad)
+- [Replicate 3 (Rep3)](https://s3.amazonaws.com/dp-lab-data-public/palantir/human_cd34_bm_rep3.h5ad)
 
+This notebook details how to use the data in `Python` and `R`: http://nbviewer.jupyter.org/github/dpeerlab/Palantir/blob/master/notebooks/manuscript_data.ipynb
 
-#### Usage
-
-A tutorial on Palantir usage and results visualization for single cell RNA-seq data can be found in this notebook: http://nbviewer.jupyter.org/github/dpeerlab/Palantir/blob/master/notebooks/Palantir_sample_notebook.ipynb
-
-
-#### Processed data and metadata
-```scanpy anndata``` objects are available for download for the three replicates generated in the manuscript: [Rep1](https://s3.amazonaws.com/dp-lab-data-public/palantir/human_cd34_bm_rep1.h5ad), [Rep2](https://s3.amazonaws.com/dp-lab-data-public/palantir/human_cd34_bm_rep2.h5ad), [Rep3](https://s3.amazonaws.com/dp-lab-data-public/palantir/human_cd34_bm_rep3.h5ad)
-
-Each object has the following elements
-* `.X`: Filtered, normalized and log transformed count matrix 
-* `.raw`: Filtered raw count matrix
-* `.obsm['MAGIC_imputed_data']`: Imputed count matrix using MAGIC
-* `.obsm['tsne']`: tSNE maps presented in the manuscript generated using scaled diffusion components as inputs
-* `.obs['clusters']`: Clustering of cells
-* `.obs['palantir_pseudotime']`: Palantir pseudo-time ordering
-* `.obs['palantir_diff_potential']`: Palantir differentation potential 
-* `.obsm['palantir_branch_probs']`: Palantir branch probabilities
-* `.uns['palantir_branch_probs_cell_types']`: Column names for branch probabilities
-* `.uns['ct_colors']`: Cell type colors used in the manuscript
-* `.uns['cluster_colors']`: Cluster colors used in the manuscript
-* `.varm['mast_diff_res_pval']`: MAST p-values for differentially expression in each cluster compared to others
-* `.varm['mast_diff_res_statistic']`: MAST statistic for differentially expression in each cluster compared to others
-* `.uns['mast_diff_res_columns']`: Column names for the differential expression results
-
-
-#### Comparison to trajectory detection algorithms
+## Comparison to trajectory detection algorithms
 Notebooks detailing the generation of results comparing Palantir to trajectory detection algorithms are available [here](https://github.com/dpeerlab/Palantir/blob/master/notebooks/comparisons)
 
-
-#### Convert to Seurat objects
-Use the snippet below to convert `anndata` to `Seurat` objects 
-```
-library("SeuratDisk")
-library("Seurat")
-library("reticulate")
-use_condaenv(<conda env>, required = T) # before, install "anndata" into <conda env>
-anndata <- import('anndata')
-
-#link to Anndata files
-url_Rep1 <- "https://s3.amazonaws.com/dp-lab-data-public/palantir/human_cd34_bm_rep1.h5ad"
-curl::curl_download(url_Rep1, basename(url_Rep1))
-url_Rep2 <- "https://s3.amazonaws.com/dp-lab-data-public/palantir/human_cd34_bm_rep2.h5ad"
-curl::curl_download(url_Rep2, basename(url_Rep2))
-url_Rep3 <- "https://s3.amazonaws.com/dp-lab-data-public/palantir/human_cd34_bm_rep3.h5ad"
-curl::curl_download(url_Rep3, basename(url_Rep3))
-
-#H5AD files are compressed using the LZF filter. 
-#This filter is Python-specific, and cannot easily be used in R. 
-#To use this file with Seurat and SeuratDisk, you'll need to read it in Python and save it out using the gzip compression
-#https://github.com/mojaveazure/seurat-disk/issues/7
-adata_Rep1 = anndata$read("human_cd34_bm_rep1.h5ad")
-adata_Rep2 = anndata$read("human_cd34_bm_rep2.h5ad")
-adata_Rep3 = anndata$read("human_cd34_bm_rep3.h5ad")
-
-adata_Rep1$write_h5ad("human_cd34_bm_rep1.gzip.h5ad", compression="gzip")
-adata_Rep2$write_h5ad("human_cd34_bm_rep2.gzip.h5ad", compression="gzip")
-adata_Rep3$write_h5ad("human_cd34_bm_rep3.gzip.h5ad", compression="gzip")
-
-
-#convert gzip-compressed h5ad file to Seurat Object
-Convert("human_cd34_bm_rep1.gzip.h5ad", dest = "h5seurat", overwrite = TRUE)
-Convert("human_cd34_bm_rep2.gzip.h5ad", dest = "h5seurat", overwrite = TRUE)
-Convert("human_cd34_bm_rep3.gzip.h5ad", dest = "h5seurat", overwrite = TRUE)
-
-human_cd34_bm_Rep1 <- LoadH5Seurat("human_cd34_bm_rep1.gzip.h5seurat")
-human_cd34_bm_Rep2 <- LoadH5Seurat("human_cd34_bm_rep2.gzip.h5seurat")
-human_cd34_bm_Rep3 <- LoadH5Seurat("human_cd34_bm_rep3.gzip.h5seurat")
-```
-Thanks to Anne Ludwig from University Hospital Heidelberg for the tip!
-
-
-#### Citations
+## Citations
 Palantir manuscript is available from [Nature Biotechnology](https://www.nature.com/articles/s41587-019-0068-4). If you use Palantir for your work, please cite our paper.
 
         @article{Palantir_2019,
@@ -110,16 +72,48 @@ ____
 
 Release Notes
 -------------
+ ### Version 1.4.0
+ * Made pygam an optional dependency that can be installed with `pip install palantir[gam]` or `pip install palantir[full]`
+ * Added proper conditional imports and improved error handling for pygam
+ * Enhanced `run_magic_imputation` to return appropriate data types for different inputs
+ * Updated code to use direct AnnData imports for newer compatibility
+ * Improved version detection using `importlib.metadata` with graceful fallbacks
+ * Fixed Series indexing deprecation warnings in early cell detection functions
+ * Expanded and standardized documentation with NumPy-style docstrings throughout the codebase
+ * Added comprehensive type hints to improve code quality and IDE support
+ * Remove dependency from `_` methods in scanpy for plotting.
+ 
+ #### Testing and Quality Improvements
+ * Added comprehensive tests for optional pygam dependency
+ * Improved test coverage for run_magic_imputation with various input/output types
+ * Added integration tests against expected results
+ * Enhanced test infrastructure to work with newer library versions
+ * Expanded test coverage to catch edge cases in data processing
+
+ ### Version 1.3.6
+ * `run_magic_imputation` now has a boolean parameter `sparse` to control output sparsity
+ * **bugfix**: `run_local_variability` for dense expression arrays now runs much faster and more accurate
+
+ ### Version 1.3.4
+ * avoid devision by zero in `select_branch_cells` for very small datasets
+ * make branch selection robust against NaNs
+ * do not plot unclustered trends (NaN cluster) in `plot_gene_trend_clusters`
+
+ ### Version 1.3.3
+ * optional progress bar with `progress=True` in `palantir.utils.run_local_variability`
+ * avoid NaN in local variablility output
+ * compatibility with `scanpy>=1.10.0`
+
  ### Version 1.3.2
- * require `python>=3.8`
+ * require `python>=3.9`
  * implement CI for testing
- * fixes for edge cases discoverd through extended testing
+ * fixes for edge cases discovered through extended testing
  * implement `plot_trajectory` function to show trajectory on the umap
- * scale pseudotime to unit intervall in anndata
+ * scale pseudotime to unit interval in anndata
 
  ### Version 1.3.1
- * implemented `palantir.plot.plot_stats` to plot arbitray cell-wise statistics as x-/y-positions.
- * reduce memory usgae of `palantir.presults.compute_gene_trends`
+ * implemented `palantir.plot.plot_stats` to plot arbitrary cell-wise statistics as x-/y-positions.
+ * reduce memory usage of `palantir.presults.compute_gene_trends`
  * removed seaborn dependency
  * refactor `run_diffusion_maps` to split out `compute_kernel` and `diffusion_maps_from_kernel`
  * remove unused dependencies `tables`, `Cython`, `cmake`, and `tzlocal`.
@@ -130,7 +124,7 @@ Release Notes
  #### New Features
  * Enable an AnnData-centric workflow for improved usability and interoperability with other single-cell analysis tools.
  * Introduced new utility functions
-     * `palantir.utils.early_cell` To automate fining an early cell based on cell type and diffusion components.
+     * `palantir.utils.early_cell` To automate finding an early cell based on cell type and diffusion components.
      * `palantir.utils.find_terminal_states` To automate finding terminal cell states based on cell type and diffusion components.
      * `palantir.presults.select_branch_cells` To find cells associated to each branch based on fate probability.
      * `palantir.plot.plot_branch_selection` To inspect the cell to branch association.
@@ -138,20 +132,20 @@ Release Notes
      * `palantir.utils.run_density` A wrapper for [mellon.DensityEstimator](https://mellon.readthedocs.io/en/latest/model.html#mellon.model.DensityEstimator).
      * `palantir.utils.run_density_evaluation` Evaluate computed density on a different dataset.
      * `palantir.utils.run_low_density_variability`. To aggregate local gene expression variability in low density.
-     * `palantir.plot.plot_branch`. To plot branch-selected cells over pseudotime in arbitrary y-postion and coloring.
-     * `palantir.plot.plot_trend`. To plot the gene trend ontop of `palantir.plot.plot_branch`.
+     * `palantir.plot.plot_branch`. To plot branch-selected cells over pseudotime in arbitrary y-position and coloring.
+     * `palantir.plot.plot_trend`. To plot the gene trend on top of `palantir.plot.plot_branch`.
  * Added input validation for better error handling and improved user experience.
  * Expanded documentation within docstrings, providing additional clarity for users and developers.
 
  #### Enhancements
  * Updated tutorial notebook to reflect the new workflow, guiding users through the updated processes.
  * Implemented gene trend computation using [Mellon](https://github.com/settylab/Mellon), providing more robust and efficient gene trend analysis.
- * Enable annotation in `palantir.plot.highight_cells_on_umap`.
+ * Enable annotation in `palantir.plot.highlight_cells_on_umap`.
 
  #### Changes
  * Replaced PhenoGraph dependency with `scanpy.tl.leiden` for gene trend clustering.
- * Deprecated the `run_tsne`, `determine_cell_clusters`, and `plot_cell_clusters` functions. Use corresponding implementations from [Scanpy](https://scanpy.readthedocs.io/en/stable/), widely used single-cell analysis library and direct dependecy of Palantir.
- * Rename `palantir.plot.highight_cells_on_tsne` to `palantir.plot.highight_cells_on_umap`
+ * Deprecated the `run_tsne`, `determine_cell_clusters`, and `plot_cell_clusters` functions. Use corresponding implementations from [Scanpy](https://scanpy.readthedocs.io/en/stable/), widely used single-cell analysis library and direct dependency of Palantir.
+ * Rename `palantir.plot.highlight_cells_on_tsne` to `palantir.plot.highlight_cells_on_umap`
  * Depend on `anndata>=0.8.0` to avoid issues writing dataframes in `ad.obsm`.
 
  #### Fixes
