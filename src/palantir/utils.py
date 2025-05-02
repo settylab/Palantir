@@ -303,6 +303,7 @@ def compute_kernel(
     alpha: float = 0,
     pca_key: str = "X_pca",
     kernel_key: str = "DM_Kernel",
+    metric: str = "euclidean"
 ) -> csr_matrix:
     """
     Compute the adaptive anisotropic diffusion kernel.
@@ -320,6 +321,8 @@ def compute_kernel(
         Key to retrieve PCA projections from data if it is a AnnData object. Default is 'X_pca'.
     kernel_key : str, optional
         Key to store the kernel in obsp of data if it is a AnnData object. Default is 'DM_Kernel'.
+    metric: str, optional
+        Distance metric to use for `sc.pp.neighbors`. Default is 'euclidean'.
 
     Returns
     -------
@@ -335,7 +338,7 @@ def compute_kernel(
 
     N = data_df.shape[0]
     temp = AnnData(data_df.values)
-    sc.pp.neighbors(temp, n_pcs=0, n_neighbors=knn)
+    sc.pp.neighbors(temp, n_pcs=0, n_neighbors=knn, metric=metric)
     kNN = temp.obsp["distances"]
 
     adaptive_k = int(np.floor(knn / 3))
@@ -416,6 +419,7 @@ def run_diffusion_maps(
     sim_key: str = "DM_Similarity",
     eigval_key: str = "DM_EigenValues",
     eigvec_key: str = "DM_EigenVectors",
+    metric: str = 'euclidean',
 ) -> Dict[str, Union[csr_matrix, pd.DataFrame, pd.Series]]:
     """
     Run Diffusion maps using the adaptive anisotropic kernel.
@@ -445,6 +449,8 @@ def run_diffusion_maps(
         Key to store the EigenValues in uns of data if it is a AnnData object. Default is 'DM_EigenValues'.
     eigvec_key : str, optional
         Key to store the EigenVectors in obsm of data if it is a AnnData object. Default is 'DM_EigenVectors'.
+    metric: str, optional
+        Distance metric to use for computing kernel. Default is 'euclidean'.
 
     Returns
     -------
@@ -466,7 +472,7 @@ def run_diffusion_maps(
         raise ValueError("'data_df' should be a pd.DataFrame or AnnData")
 
     if not issparse(data_df):
-        kernel = compute_kernel(data_df, knn, alpha)
+        kernel = compute_kernel(data_df, knn, alpha, metric = metric)
     else:
         warn(
             "'data' is a sparse matrix and will be interpreted as kernel. "
