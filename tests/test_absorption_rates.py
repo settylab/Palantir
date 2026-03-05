@@ -101,3 +101,22 @@ def test_optimize_absorption_rates(mock_data):
     assert len(result) == 2
     for cell, rate in result.items():
         assert 0 < rate <= 1.0, f"Rate {rate} for {cell} out of bounds"
+
+
+@pytest.mark.filterwarnings("ignore:np.find_common_type is deprecated.")
+@pytest.mark.filterwarnings("ignore:Changing the sparsity structure of a csr_matrix is expensive.")
+def test_terminal_order_independence(mock_data):
+    """Fate probs must be identical regardless of terminal_states order."""
+    r1 = run_palantir(
+        mock_data, "cell_0", terminal_states=["cell_1", "cell_2"],
+        absorption_rates={"cell_1": 0.3, "cell_2": 0.8},
+    )
+    r2 = run_palantir(
+        mock_data, "cell_0", terminal_states=["cell_2", "cell_1"],
+        absorption_rates={"cell_1": 0.3, "cell_2": 0.8},
+    )
+    # Align columns before comparing
+    cols = sorted(r1.branch_probs.columns)
+    pd.testing.assert_frame_equal(
+        r1.branch_probs[cols], r2.branch_probs[cols], atol=1e-10,
+    )

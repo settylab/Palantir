@@ -776,6 +776,9 @@ def _compute_absorption_probabilities(
     T[abs_states, :] = 0
     T[abs_states, abs_states] = 1
 
+    # Canonical terminal labels in abs_states order (the order used by all arrays)
+    abs_labels = waypoints[abs_states]
+
     if len(trans_states) == 0:
         # All states are terminal
         if partial:
@@ -788,8 +791,8 @@ def _compute_absorption_probabilities(
         else:
             b_a = np.eye(n_abs)
 
-        ent = pd.Series(0, index=terminal_states)
-        bp = pd.DataFrame(b_a, index=terminal_states, columns=terminal_states)
+        ent = pd.Series(0, index=abs_labels)
+        bp = pd.DataFrame(b_a, index=abs_labels, columns=abs_labels)
         return bp, ent
 
     # Fundamental matrix and absorption probabilities
@@ -849,14 +852,13 @@ def _compute_absorption_probabilities(
     # Entropy
     ent = pd.Series(entropy(branch_probs.values, axis=1), index=branch_probs.index)
 
-    # Add terminal states
-    ent = pd.concat([ent, pd.Series(0, index=terminal_states)])
+    # Add terminal states (use abs_labels to match b_a row ordering)
+    ent = pd.concat([ent, pd.Series(0, index=abs_labels)])
     if partial:
-        bp = pd.DataFrame(b_a, index=terminal_states, columns=waypoints[abs_states])
+        bp = pd.DataFrame(b_a, index=abs_labels, columns=abs_labels)
         bp[bp < 0] = 0
     else:
-        bp = pd.DataFrame(0, index=terminal_states, columns=terminal_states)
-        bp.values[range(len(terminal_states)), range(len(terminal_states))] = 1
+        bp = pd.DataFrame(np.eye(n_abs), index=abs_labels, columns=abs_labels)
     branch_probs = pd.concat([branch_probs, bp.loc[:, branch_probs.columns]])
 
     return branch_probs, ent
