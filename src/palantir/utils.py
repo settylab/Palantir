@@ -15,7 +15,7 @@ from anndata import AnnData
 from sklearn.neighbors import NearestNeighbors
 
 from . import config as palantir_config
-from .core import run_palantir, _get_joblib_backend
+from .core import run_palantir, _get_joblib_backend, _construct_markov_chain, _compute_absorption_probabilities
 
 from .validation import _validate_obsm_key, normalize_cell_identifiers
 
@@ -1135,3 +1135,275 @@ def find_terminal_states(
             continue
         terminal_states[cell] = ct
     return terminal_states
+
+
+def optimize_absorption_rates(
+    data: Union[pd.DataFrame, AnnData],
+    early_cell: str,
+    terminal_states: Union[List, Dict, pd.Series],
+    target_fate_probs: Optional[np.ndarray] = None,
+    reference_cell: Optional[str] = None,
+    knn: int = 30,
+    num_waypoints: int = 1200,
+    n_jobs: int = -1,
+    scale_components: bool = True,
+    use_early_cell_as_start: bool = False,
+    max_iterations: int = 25,
+    eigvec_key: str = "DM_EigenVectors_multiscaled",
+    seed: int = 20,
+    bounds: Tuple[float, float] = (0.01, 1.0),
+) -> Dict[str, float]:
+    """Optimize absorption rates so fate probabilities at a reference cell match a target.
+
+    This function builds the Palantir Markov chain, precomputes the expensive
+    fundamental matrix factorization once, then uses ``scipy.optimize.minimize``
+    to find absorption rates ``alpha`` such that the fate probability vector at
+    ``reference_cell`` is as close as possible to ``target_fate_probs``.
+
+    Parameters
+    ----------
+    data : Union[pd.DataFrame, AnnData]
+        Either a DataFrame of multiscale space diffusion components or a Scanpy
+        AnnData object.
+    early_cell : str
+        Start cell for pseudotime construction.
+    terminal_states : List/Series/Dict
+        Terminal states. Same format as ``run_palantir``.
+    target_fate_probs : np.ndarray, optional
+        Target fate probability vector of length k (number of terminal states).
+        Default is uniform: ``[1/k, ..., 1/k]``.
+    reference_cell : str, optional
+        Cell at which to evaluate fate probabilities. Default is the start cell.
+    knn : int, optional
+        Number of nearest neighbors for graph construction. Default is 30.
+    num_waypoints : int, optional
+        Number of waypoints to sample. Default is 1200.
+    n_jobs : int, optional
+        Number of jobs for parallel processing. Default is -1.
+    scale_components : bool, optional
+        If True, components are scaled. Default is True.
+    use_early_cell_as_start : bool, optional
+        If True, the early cell is used as start. Default is False.
+    max_iterations : int, optional
+        Maximum number of iterations for pseudotime convergence. Default is 25.
+    eigvec_key : str, optional
+        Key to access multiscale space diffusion components from obsm of the
+        AnnData object. Default is 'DM_EigenVectors_multiscaled'.
+    seed : int, optional
+        The seed for the random number generator. Default is 20.
+    bounds : Tuple[float, float], optional
+        Lower and upper bounds for each absorption rate. Default is (0.01, 1.0).
+
+    Returns
+    -------
+    Dict[str, float]
+        Optimized absorption rates mapping terminal cell identifiers to rates.
+    """
+    from scipy.optimize import minimize
+    from sklearn import preprocessing
+    from sklearn.metrics import pairwise_distances
+    from scipy.sparse import eye
+    from scipy.sparse.linalg import splu
+    from numpy.linalg import inv, pinv, LinAlgError
+    from scipy.stats import entropy as sp_entropy
+    import copy
+
+    from .core import _max_min_sampling, _compute_pseudotime
+    from .validation import normalize_cell_identifiers as _normalize
+
+    # --- Resolve data and terminal states (same logic as run_palantir) ---
+    if isinstance(data, AnnData):
+        ms_data = pd.DataFrame(data.obsm[eigvec_key], index=data.obs_names)
+    else:
+        ms_data = data
+
+    obs_names = ms_data.index
+
+    # Normalize early_cell
+    ec_dict, _, n_found = _normalize([early_cell], obs_names, context="optimize_absorption_rates")
+    if n_found == 0:
+        raise ValueError(f"Early cell '{early_cell}' not found in data.")
+    early_cell = list(ec_dict.keys())[0]
+
+    # Normalize terminal_states
+    if isinstance(terminal_states, dict):
+        terminal_states = pd.Series(terminal_states)
+    if isinstance(terminal_states, pd.Series):
+        td, _, _ = _normalize(terminal_states, obs_names, context="optimize_absorption_rates")
+        terminal_states_series = pd.Series(td)
+        terminal_cells = list(td.keys())
+    else:
+        td, _, _ = _normalize(terminal_states, obs_names, context="optimize_absorption_rates")
+        terminal_cells = list(td.keys())
+        terminal_states_series = None
+
+    k = len(terminal_cells)
+    if k < 2:
+        raise ValueError("Need at least 2 terminal states for absorption rate optimization.")
+
+    # Default target: uniform
+    if target_fate_probs is None:
+        target_fate_probs = np.ones(k) / k
+    target_fate_probs = np.asarray(target_fate_probs, dtype=float)
+    if len(target_fate_probs) != k:
+        raise ValueError(
+            f"target_fate_probs length ({len(target_fate_probs)}) must match "
+            f"number of terminal states ({k})."
+        )
+
+    # --- Build the same waypoint structure as run_palantir ---
+    if scale_components:
+        data_df = pd.DataFrame(
+            preprocessing.minmax_scale(ms_data), index=ms_data.index, columns=ms_data.columns
+        )
+    else:
+        data_df = copy.copy(ms_data)
+
+    dm_boundaries = pd.Index(set(data_df.idxmax()).union(data_df.idxmin()))
+    dists = pairwise_distances(
+        data_df.loc[dm_boundaries, :], data_df.loc[early_cell, :].values.reshape(1, -1)
+    )
+    start_cell = pd.Series(np.ravel(dists), index=dm_boundaries).idxmin()
+    if use_early_cell_as_start:
+        start_cell = early_cell
+
+    waypoints = _max_min_sampling(data_df, num_waypoints, seed)
+    waypoints = waypoints.union(dm_boundaries)
+    waypoints = waypoints.union(terminal_cells)
+    waypoints = pd.Index(waypoints.difference([start_cell]).unique())
+    waypoints = pd.Index([start_cell]).append(waypoints)
+
+    # Pseudotime
+    pseudotime, W = _compute_pseudotime(data_df, start_cell, knn, waypoints, n_jobs, max_iterations)
+
+    # Determine reference cell
+    if reference_cell is None:
+        reference_cell = start_cell
+    else:
+        rc_dict, _, rc_found = _normalize([reference_cell], obs_names, context="optimize_absorption_rates")
+        if rc_found == 0:
+            raise ValueError(f"Reference cell '{reference_cell}' not found.")
+        reference_cell = list(rc_dict.keys())[0]
+
+    # --- Build the Markov chain on waypoints ---
+    wp_data = data_df.loc[waypoints, :]
+    T = _construct_markov_chain(wp_data, knn, pseudotime, n_jobs)
+
+    terminal_arr = np.array(terminal_cells)
+
+    # Precompute pieces that don't depend on alpha
+    abs_states = np.where(waypoints.isin(terminal_arr))[0]
+    trans_states = sorted(set(range(len(waypoints))).difference(abs_states))
+    n_abs = len(abs_states)
+
+    # Save original terminal rows
+    T_abs_orig = T[abs_states, :].toarray().copy()
+    T_at = T_abs_orig[:, trans_states]
+    T_aa = T_abs_orig[:, abs_states]
+
+    # Zero out terminal rows (standard absorbing setup) to get Q and R
+    T[abs_states, :] = 0
+    T[abs_states, abs_states] = 1
+
+    Q = T[trans_states, :][:, trans_states]
+    R = T[trans_states, :][:, abs_states].toarray()
+
+    # LU factorization of (I - Q) — computed once
+    I_Q = eye(Q.shape[0], format="csc") - Q.tocsc()
+    try:
+        lu = splu(I_Q)
+        _solve = lu.solve
+    except Exception:
+        mat = I_Q.todense()
+        try:
+            N_mat = inv(mat)
+        except LinAlgError:
+            N_mat = pinv(mat, hermitian=True)
+        _solve = lambda rhs: np.dot(N_mat, rhs)
+
+    FR = _solve(R)  # (n_trans, n_abs)
+
+    # G = T_at * F * R + T_aa  (k x k)
+    G = T_at @ FR + T_aa
+
+    # Find reference cell index in the waypoint-projected space
+    # The reference cell's fate probs are projected via W
+    if reference_cell in waypoints:
+        ref_in_waypoints = True
+        ref_wp_idx = np.where(waypoints == reference_cell)[0][0]
+    else:
+        ref_in_waypoints = False
+
+    # Map terminal state order: abs_states indices correspond to waypoints[abs_states]
+    # We need to know which column of branch_probs corresponds to which terminal
+    terminal_order = waypoints[abs_states]
+
+    def _fate_at_ref(alpha_vec):
+        """Compute fate probabilities at the reference cell for given alpha."""
+        I_minus_alpha = np.diag(1.0 - alpha_vec)
+        A_mat = np.eye(n_abs) - I_minus_alpha @ G
+        b_a = np.linalg.solve(A_mat, np.diag(alpha_vec))
+
+        # Transient fate probs
+        b_t = FR @ b_a  # (n_trans, n_abs)
+
+        if ref_in_waypoints:
+            if ref_wp_idx in abs_states:
+                # Reference is a terminal state
+                local_idx = np.where(abs_states == ref_wp_idx)[0][0]
+                return b_a[local_idx]
+            else:
+                local_idx = trans_states.index(ref_wp_idx)
+                return b_t[local_idx]
+        else:
+            # Project through W matrix
+            # W: (n_waypoints, n_cells), columns are all cells
+            # Fate probs for waypoints
+            all_fate = np.zeros((len(waypoints), n_abs))
+            for i, ts_idx in enumerate(range(n_abs)):
+                for j, s in enumerate(trans_states):
+                    all_fate[s, i] = b_t[j, i]
+                for j, s in enumerate(abs_states):
+                    all_fate[s, i] = b_a[j, i]
+            ref_col_idx = np.where(W.columns == reference_cell)[0][0]
+            w_col = W.iloc[:, ref_col_idx].values
+            return w_col @ all_fate
+
+    def _objective(alpha_vec):
+        fate = _fate_at_ref(alpha_vec)
+        fate = np.maximum(fate, 0)
+        s = fate.sum()
+        if s > 0:
+            fate = fate / s
+        return np.sum((fate - target_fate_probs) ** 2)
+
+    # Optimize
+    alpha0 = np.ones(n_abs)
+    res = minimize(
+        _objective,
+        alpha0,
+        method="L-BFGS-B",
+        bounds=[(bounds[0], bounds[1])] * n_abs,
+    )
+
+    if not res.success:
+        warnings.warn(f"Absorption rate optimization did not converge: {res.message}")
+
+    optimal_alpha = res.x
+
+    # Build result dict mapping terminal cell names to rates
+    result = {str(terminal_order[i]): float(optimal_alpha[i]) for i in range(n_abs)}
+
+    # Print summary
+    print("Optimized absorption rates:")
+    for cell, rate in result.items():
+        print(f"  {cell}: {rate:.4f}")
+    fate_final = _fate_at_ref(optimal_alpha)
+    fate_final = np.maximum(fate_final, 0)
+    s = fate_final.sum()
+    if s > 0:
+        fate_final = fate_final / s
+    print(f"Achieved fate probs at reference cell: {fate_final}")
+    print(f"Target fate probs:                     {target_fate_probs}")
+
+    return result

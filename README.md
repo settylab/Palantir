@@ -73,6 +73,11 @@ ____
 Release Notes
 -------------
 
+ ### Unreleased
+ * Add configurable absorption rates for terminal states in the Markov chain via `absorption_rates` parameter in `run_palantir`
+ * Add `optimize_absorption_rates` utility to find absorption rates that yield desired fate probability distributions at a reference cell
+ * Refactor absorption probability computation into reusable `_compute_absorption_probabilities` function
+
  ### Version 1.4.4
  * Fix: reorder dependencies to work around uv resolver order-dependence ([astral-sh/uv#5161](https://github.com/astral-sh/uv/issues/5161)), which caused `uv pip install palantir` to resolve to incompatible ancient versions of scanpy/numba/llvmlite
 

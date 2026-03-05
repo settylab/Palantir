@@ -75,6 +75,7 @@ def run_palantir(
     save_as_df: bool = None,
     waypoints_key: str = "palantir_waypoints",
     seed: int = 20,
+    absorption_rates: Optional[Dict[str, float]] = None,
 ) -> Optional[object]:
     """
     Executes the Palantir algorithm to derive pseudotemporal ordering of cells, their fate probabilities, and
@@ -118,6 +119,12 @@ def run_palantir(
         Key to store the waypoints in uns of the AnnData object. Default is 'palantir_waypoints'.
     seed : int, optional
         The seed for the random number generator used in waypoint sampling. Default is 20.
+    absorption_rates : Dict[str, float], optional
+        Absorption rate for each terminal state, mapping cell identifier to a rate
+        in (0, 1]. A rate of 1.0 means full absorption (standard behavior). Lower
+        values make the terminal state "leaky" — the random walk can pass through it
+        with probability (1 - rate), which redistributes fate probabilities.
+        Default is None (all rates = 1.0).
 
     Returns
     -------
@@ -217,7 +224,8 @@ def run_palantir(
     # Entropy and branch probabilities
     print("Entropy and branch probabilities...")
     ent, branch_probs = _differentiation_entropy(
-        data_df.loc[waypoints, :], terminal_cells, knn, n_jobs, pseudotime
+        data_df.loc[waypoints, :], terminal_cells, knn, n_jobs, pseudotime,
+        absorption_rates=absorption_rates,
     )
 
     # Project results to all cells
@@ -650,15 +658,16 @@ def _terminal_states_from_markov_chain(
 
 
 def _differentiation_entropy(
-    wp_data: pd.DataFrame, 
-    terminal_states: Optional[np.ndarray], 
-    knn: int, 
-    n_jobs: int, 
-    pseudotime: pd.Series
+    wp_data: pd.DataFrame,
+    terminal_states: Optional[np.ndarray],
+    knn: int,
+    n_jobs: int,
+    pseudotime: pd.Series,
+    absorption_rates: Optional[Dict[str, float]] = None,
 ) -> Tuple[pd.Series, pd.DataFrame]:
     """Compute entropy and branch probabilities from a Markov chain.
 
-    This function constructs a Markov chain from waypoints data and computes 
+    This function constructs a Markov chain from waypoints data and computes
     cell branch probabilities and differentiation entropy.
 
     Parameters
@@ -674,6 +683,11 @@ def _differentiation_entropy(
         Number of jobs for parallel processing.
     pseudotime : pd.Series
         Pseudotime ordering of cells.
+    absorption_rates : Dict[str, float], optional
+        Absorption rate for each terminal state, mapping cell identifier to a rate
+        in (0, 1]. A rate of 1.0 means full absorption (standard behavior). Lower
+        values make the terminal state "leaky", allowing the random walk to continue
+        through it with probability (1 - rate). Default is None (all rates = 1.0).
 
     Returns
     -------
@@ -689,80 +703,163 @@ def _differentiation_entropy(
     # Identify terminal states if not specified
     if terminal_states is None:
         terminal_states = _terminal_states_from_markov_chain(T, wp_data, pseudotime)
-    # Absorption states should not have outgoing edges
-    waypoints = wp_data.index
+
+    branch_probs, ent = _compute_absorption_probabilities(
+        T, wp_data.index, terminal_states, absorption_rates
+    )
+    return ent, branch_probs
+
+
+def _compute_absorption_probabilities(
+    T: csr_matrix,
+    waypoints: pd.Index,
+    terminal_states: np.ndarray,
+    absorption_rates: Optional[Dict[str, float]] = None,
+) -> Tuple[pd.DataFrame, pd.Series]:
+    """Compute absorption probabilities for a Markov chain with optional partial absorption.
+
+    When all absorption rates are 1.0 (default), this reduces to the standard absorbing
+    Markov chain: B = (I - Q)^{-1} R.
+
+    For partial absorption rates alpha_i < 1.0, terminal states become "leaky" — the
+    random walk passes through them with probability (1 - alpha_i). The computation uses:
+      1. F = (I - Q)^{-1}  (fundamental matrix, same as standard case)
+      2. G = T_at * F * R + T_aa  (terminal-to-terminal via transient + direct)
+      3. b_a = (I - (I - diag(alpha)) * G)^{-1} * diag(alpha)  (terminal fate probs)
+      4. b_t = F * R * b_a  (transient fate probs)
+
+    Parameters
+    ----------
+    T : csr_matrix
+        Transition matrix of the Markov chain. Modified in-place for full absorption.
+    waypoints : pd.Index
+        Cell identifiers corresponding to rows/columns of T.
+    terminal_states : np.ndarray
+        Array of terminal state cell identifiers.
+    absorption_rates : Dict[str, float], optional
+        Absorption rate per terminal state in (0, 1]. Default is None (all 1.0).
+
+    Returns
+    -------
+    Tuple[pd.DataFrame, pd.Series]
+        branch_probs : pd.DataFrame
+            Absorption probabilities for each cell and terminal state.
+        entropy : pd.Series
+            Differentiation entropy for each cell.
+    """
     abs_states = np.where(waypoints.isin(terminal_states))[0]
     if len(abs_states) == 0:
         ent = pd.Series(0, index=waypoints)
         branch_probs = pd.DataFrame(index=waypoints, columns=[])
-        return ent, branch_probs
-    # Reset absorption state affinities by Removing neigbors
+        return branch_probs, ent
+
+    n_abs = len(abs_states)
+    trans_states = list(set(range(len(waypoints))).difference(abs_states))
+
+    # Build absorption rate vector (ordered by abs_states)
+    if absorption_rates is not None:
+        alpha = np.array([
+            absorption_rates.get(waypoints[i], 1.0) for i in abs_states
+        ])
+        if np.any(alpha <= 0) or np.any(alpha > 1):
+            raise ValueError("Absorption rates must be in (0, 1].")
+    else:
+        alpha = np.ones(n_abs)
+
+    partial = not np.allclose(alpha, 1.0)
+
+    # Save original terminal rows before zeroing (needed for partial absorption)
+    if partial:
+        T_abs_orig = T[abs_states, :].toarray().copy()
+
+    # Zero out terminal rows and set diagonal to 1 (standard absorbing setup)
     T[abs_states, :] = 0
-    # Diagnoals as 1s
     T[abs_states, abs_states] = 1
+
+    if len(trans_states) == 0:
+        # All states are terminal
+        if partial:
+            # G = T_aa (no transient states, so no paths through them)
+            T_aa = T_abs_orig[np.ix_(range(n_abs), abs_states)]
+            G = T_aa
+            A_diag = np.diag(alpha)
+            I_minus_alpha = np.diag(1.0 - alpha)
+            b_a = np.linalg.solve(np.eye(n_abs) - I_minus_alpha @ G, A_diag)
+        else:
+            b_a = np.eye(n_abs)
+
+        ent = pd.Series(0, index=terminal_states)
+        bp = pd.DataFrame(b_a, index=terminal_states, columns=terminal_states)
+        return bp, ent
 
     # Fundamental matrix and absorption probabilities
     print("Computing fundamental matrix and absorption probabilities...")
-    # Transition states
-    trans_states = list(set(range(len(waypoints))).difference(abs_states))
 
-    # Q matrix
+    # Q matrix (transient-to-transient)
     Q = T[trans_states, :][:, trans_states]
-    if len(trans_states) == 0:
-        ent = pd.Series(0, index=terminal_states)
-        bp = pd.DataFrame(0, index=terminal_states, columns=terminal_states)
-        bp.values[range(len(terminal_states)), range(len(terminal_states))] = 1
-        return ent, bp
-    
-    # Fundamental matrix solver
-    # We want to solve (I - Q) * B = T_trans_abs
-    # Instead of inverting (I - Q), we solve the linear system
-    I_Q = eye(Q.shape[0], format="csc") - Q.tocsc()
-    
-    n_abs = len(abs_states)
-    if n_abs == 0:
-        branch_probs_vals = np.zeros((len(trans_states), 0))
-    else:
-        try:
-            # Use sparse LU solver
-            lu = splu(I_Q)
-            if n_abs <= 256:
-                R = T[trans_states, :][:, abs_states].toarray()
-                branch_probs_vals = lu.solve(R)
-            else:
-                branch_probs_vals = np.empty((len(trans_states), n_abs), dtype=float)
-                for start in range(0, n_abs, 256):
-                    end = min(start + 256, n_abs)
-                    R_block = T[trans_states, :][:, abs_states[start:end]].toarray()
-                    branch_probs_vals[:, start:end] = lu.solve(R_block)
-        except Exception:
-            # Fallback if singular or other issues (though unlikely for I-Q in absorbing chain)
-            warnings.warn("Sparse solver failed. Falling back to dense inverse.")
-            mat = I_Q.todense()
-            try:
-                N = inv(mat)
-            except LinAlgError:
-                N = pinv(mat, hermitian=True)
-            R = T[trans_states, :][:, abs_states].toarray()
-            branch_probs_vals = np.dot(N, R)
+    # R matrix (transient-to-absorbing)
+    R = T[trans_states, :][:, abs_states].toarray()
 
-    # Absorption probabilities
+    # Fundamental matrix solver: solve (I - Q) x = rhs
+    I_Q = eye(Q.shape[0], format="csc") - Q.tocsc()
+
+    try:
+        lu = splu(I_Q)
+        _solve = lu.solve
+    except Exception:
+        warnings.warn("Sparse solver failed. Falling back to dense inverse.")
+        mat = I_Q.todense()
+        try:
+            N = inv(mat)
+        except LinAlgError:
+            N = pinv(mat, hermitian=True)
+        _solve = lambda rhs: np.dot(N, rhs)
+
+    # Compute F * R (transient fate probs for full absorption case)
+    if n_abs <= 256:
+        FR = _solve(R)
+    else:
+        FR = np.empty((len(trans_states), n_abs), dtype=float)
+        for start in range(0, n_abs, 256):
+            end = min(start + 256, n_abs)
+            FR[:, start:end] = _solve(R[:, start:end])
+
+    if partial:
+        # Compute G = T_at * F * R + T_aa (k x k matrix)
+        T_at = T_abs_orig[:, [trans_states[j] for j in range(len(trans_states))]]
+        T_aa = T_abs_orig[:, abs_states]
+        G = T_at @ FR + T_aa
+
+        # Solve for terminal-to-terminal absorption: b_a = (I - (I-diag(α)) G)^{-1} diag(α)
+        I_minus_alpha = np.diag(1.0 - alpha)
+        A_mat = np.eye(n_abs) - I_minus_alpha @ G
+        b_a = np.linalg.solve(A_mat, np.diag(alpha))
+
+        # Transient fate probs: b_t = F * R * b_a
+        branch_probs_vals = FR @ b_a
+    else:
+        branch_probs_vals = FR
+
+    # Absorption probabilities for transient states
     branch_probs = pd.DataFrame(
         branch_probs_vals, index=waypoints[trans_states], columns=waypoints[abs_states]
     )
     branch_probs[branch_probs < 0] = 0
 
     # Entropy
-    # entropy expects (N, k) array and axis
     ent = pd.Series(entropy(branch_probs.values, axis=1), index=branch_probs.index)
 
     # Add terminal states
     ent = pd.concat([ent, pd.Series(0, index=terminal_states)])
-    bp = pd.DataFrame(0, index=terminal_states, columns=terminal_states)
-    bp.values[range(len(terminal_states)), range(len(terminal_states))] = 1
+    if partial:
+        bp = pd.DataFrame(b_a, index=terminal_states, columns=waypoints[abs_states])
+        bp[bp < 0] = 0
+    else:
+        bp = pd.DataFrame(0, index=terminal_states, columns=terminal_states)
+        bp.values[range(len(terminal_states)), range(len(terminal_states))] = 1
     branch_probs = pd.concat([branch_probs, bp.loc[:, branch_probs.columns]])
 
-    return ent, branch_probs
+    return branch_probs, ent
 
 
 def _shortest_path_helper(cell: int, adj: csr_matrix) -> pd.Series:
