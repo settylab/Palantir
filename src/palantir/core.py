@@ -17,6 +17,7 @@ from scipy.sparse.linalg import eigs, splu
 
 from scipy.sparse import csr_matrix, find, csgraph, eye
 from scipy.sparse.csgraph import connected_components
+from scipy.special import softmax
 from scipy.stats import entropy, pearsonr, norm
 from numpy.linalg import inv, pinv, LinAlgError
 from numpy.random import BitGenerator, SeedSequence, RandomState
@@ -388,8 +389,8 @@ def _compute_pseudotime(
     chunks = [slice(a, b) for a, b in zip(bounds[:-1], bounds[1:])]
     W_vals = np.empty_like(D_vals)
     for c in chunks:
-        W_c = np.exp(-0.5 * np.power((D_vals[:, c] / sdv), 2))
-        W_vals[:, c] = W_c / W_c.sum(axis=0, keepdims=True)
+        # Normalised Gaussian weights; softmax keeps them finite where every exp would underflow
+        W_vals[:, c] = softmax(-0.5 * np.power((D_vals[:, c] / sdv), 2), axis=0)
 
     start_row = waypoints.get_loc(start_cell)
     pseudotime = D_vals[start_row, :].copy()

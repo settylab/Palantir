@@ -75,6 +75,7 @@ Release Notes
 
  ### Version 1.4.6 (future)
 * Fix: drop the deprecated `copy` keyword of the `astype` call in `from_fcs` (`io.py`), avoiding `Pandas4Warning` on pandas >=3.0. `copy=False` was inert here — it can only skip an allocation when the frame is already `float64` — so the cast behaves identically on pandas 2 and 3.
+* Fix: pseudotime was NaN for every cell when one cell was more than ~38 bandwidths from every waypoint: all its waypoint weights underflowed to 0, and normalising them gave 0 / 0. The weights are now normalised with `scipy.special.softmax`, which gives the same values up to floating-point rounding (a few ulp) and stays finite.
 * Faster, leaner pseudotime on large data, with unchanged results: shortest paths from the waypoints run in `n_jobs` processes, the connectivity check uses `scipy.sparse.csgraph` instead of networkx, and the refinement works in chunks of cells.
 
  ### Version 1.4.5
