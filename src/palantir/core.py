@@ -365,11 +365,12 @@ def _compute_pseudotime(
 
     wp_indices = data.index.get_indexer(waypoints)
 
-    # Dijkstra holds the GIL, so the waypoints are split over processes
+    # Dijkstra holds the GIL, so the waypoints are split over processes; threads would not help
+    backend = _get_joblib_backend()
     n_chunks = min(effective_n_jobs(n_jobs), len(wp_indices))
-    if n_chunks > 1:
+    if n_chunks > 1 and backend != "threading":
         dists = np.vstack(
-            Parallel(n_jobs=n_chunks, backend=_get_joblib_backend())(
+            Parallel(n_jobs=n_chunks, backend=backend)(
                 delayed(csgraph.dijkstra)(adj, directed=False, indices=chunk)
                 for chunk in np.array_split(wp_indices, n_chunks)
             )
