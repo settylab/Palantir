@@ -65,14 +65,17 @@ def _connect_graph_reference(adj: csr_matrix, data: pd.DataFrame, start_cell: in
 
 def _compute_pseudotime_reference(
     data: pd.DataFrame,
-    start_cell: str,
+    start_cell: str | list[str],
     knn: int,
     waypoints: pd.Index,
     max_iterations: int = 25,
 ):
+    # several start cells: pseudotime starts from the nearest one,
+    # and every start row keeps sign +1 and time 0
+    start_cells = list(start_cell) if isinstance(start_cell, (list, pd.Index)) else [start_cell]
     nbrs = NearestNeighbors(n_neighbors=knn, metric="euclidean", n_jobs=1).fit(data)
     adj = nbrs.kneighbors_graph(data, mode="distance")
-    adj = _connect_graph_reference(adj, data, np.where(data.index == start_cell)[0][0])
+    adj = _connect_graph_reference(adj, data, np.where(data.index == start_cells[0])[0][0])
 
     dists = []
     for cell in waypoints:
@@ -87,12 +90,12 @@ def _compute_pseudotime_reference(
     W = np.exp(-0.5 * np.power((D / sdv), 2))
     W = W / W.sum()
 
-    pseudotime = D.loc[start_cell, :].copy()
+    pseudotime = D.loc[start_cells, :].min()
     converged = False
     iteration = 1
     while not converged and iteration < max_iterations:
         P = D.copy()
-        for wp in waypoints[1:]:
+        for wp in waypoints.difference(start_cells, sort=False):
             idx_val = pseudotime[wp]
             before_indices = pseudotime.index[pseudotime < idx_val]
             P.loc[wp, before_indices] = -D.loc[wp, before_indices]
@@ -205,6 +208,27 @@ def test_compute_pseudotime_cell_far_from_waypoints():
     assert np.isfinite(pt.values).all()
     assert np.allclose(W.sum(axis=0), 1)
     assert pt.idxmax() == data.index[-1]
+
+
+def test_compute_pseudotime_several_start_cells_equivalence():
+    # Two start cells close enough that each carries weight on the other's row, so the
+    # refinement must hold every start row at sign +1 and time 0 (checked against the reference)
+    rng = np.random.default_rng(0)
+    x = np.linspace(0, 1, 60)
+    data = pd.DataFrame(np.column_stack([x, 0.01 * rng.random(60)]))
+    data.index = pd.Index([f"cell_{i}" for i in range(data.shape[0])])
+    start_cells = [data.index[20], data.index[30]]
+    waypoints = pd.Index(start_cells).append(data.index.difference(start_cells, sort=False)[::3])
+
+    pt_new, W_new = _compute_pseudotime(
+        data, start_cells, knn=5, waypoints=waypoints, n_jobs=1, max_iterations=10
+    )
+    pt_ref, W_ref = _compute_pseudotime_reference(
+        data, start_cells, knn=5, waypoints=waypoints, max_iterations=10
+    )
+
+    assert np.allclose(pt_new.values, pt_ref.values, atol=1e-10, rtol=1e-10)
+    assert np.allclose(W_new.values, W_ref.values, atol=1e-10, rtol=1e-10)
 
 
 def test_compute_kernel_scanpy_equivalence():
