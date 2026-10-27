@@ -90,16 +90,16 @@ def run_palantir(
     data : pd.DataFrame | AnnData
         Either a DataFrame of multiscale space diffusion components or a Scanpy AnnData object.
     early_cell : str | list[str]
-        Start cell for pseudotime construction, or a list of start cells. With several, the pseudotime
-        of a cell is its distance from the nearest start cell, and every start cell is held at 0. This
-        is a modelling choice: it suits several independent progenitor populations (separate niches or
-        origins); when one most primitive cell is known, a single start cell remains the better choice.
-        With several start cells, use_early_cell_as_start=True is recommended, and passing
-        terminal_states explicitly is advisable (see below).
+        Start cell for pseudotime construction, or a list of start cells. With several, the
+        pseudotime of a cell is its distance from the nearest start cell, and every start cell is
+        held at 0. This is a modelling choice: it suits several independent progenitor populations
+        (separate niches or origins); when one most primitive cell is known, a single start cell
+        remains the better choice. With several start cells, use_early_cell_as_start=True is
+        recommended, and passing terminal_states explicitly is advisable (see below).
     terminal_states : list | pd.Series | dict, optional
-        User-defined terminal states structure in the format {terminal_name:cell_name}. Default is None,
-        which detects them automatically. With several start cells the latest cells can lie between
-        them, and the detection can then find no terminal state.
+        User-defined terminal states structure in the format {terminal_name:cell_name}. Default is
+        None, which detects them automatically. With several start cells the latest cells can lie
+        between them, and the detection can then find no terminal state.
     knn : int, optional
         Number of nearest neighbors for graph construction. Default is 30.
     num_waypoints : int, optional
@@ -175,7 +175,9 @@ def run_palantir(
     else:
         ms_data = data
 
-    early_cells = _normalize_early_cells(early_cell, ms_data.index, "run_palantir early_cell", "data.obs_names")
+    early_cells = _normalize_early_cells(
+        early_cell, ms_data.index, "run_palantir early_cell", "data.obs_names"
+    )
 
     if scale_components:
         data_df = pd.DataFrame(
@@ -252,7 +254,9 @@ def run_palantir(
 def _normalize_early_cells(early_cell, index: pd.Index, context: str, names: str) -> list:
     """Normalize one early cell or a list of them; raise naming the cells not found in index."""
     early_cell = list(early_cell) if pd.api.types.is_list_like(early_cell) else [early_cell]
-    early_cell_dict, _, n_early_found = normalize_cell_identifiers(early_cell, index, context=context)
+    early_cell_dict, _, n_early_found = normalize_cell_identifiers(
+        early_cell, index, context=context
+    )
     if n_early_found < len(early_cell_dict):
         missing = [cell for cell in early_cell_dict if cell not in index] or list(early_cell_dict)
         raise ValueError(
@@ -277,8 +281,8 @@ def _start_cells(
     if len(start_cells) < len(early_cells):
         moves = ", ".join(f"{early} -> {start}" for early, start in zip(early_cells, snapped))
         warnings.warn(
-            f"{len(early_cells)} early cells were moved to their nearest diffusion-component boundary "
-            f"cells, which leaves only {len(start_cells)} start cell(s): {moves}. "
+            f"{len(early_cells)} early cells were moved to their nearest diffusion-component "
+            f"boundary cells, which leaves only {len(start_cells)} start cell(s): {moves}. "
             "Pass use_early_cell_as_start=True to start from the early cells themselves.",
             UserWarning,
             stacklevel=3,
@@ -694,7 +698,7 @@ def _terminal_states_from_markov_chain(
     # Nearest diffusion map boundaries
     if len(cells) == 0:
         warnings.warn(
-            "No terminal states were detected, so there are no fate probabilities. "
+            "No terminal states were detected; run_palantir then returns no fate probabilities. "
             "This can happen with several start cells, when the latest cells lie between them. "
             "Pass terminal_states explicitly.",
             UserWarning,

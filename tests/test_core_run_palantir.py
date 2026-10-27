@@ -161,7 +161,11 @@ def test_identify_terminal_states_early_cell_list():
     # two arms that merge into one stem: the arm tips are the start cells, the stem end is terminal
     rng = np.random.default_rng(0)
     t = np.linspace(0, 1, 150)
-    arms = [np.column_stack([t, 1 - t]), np.column_stack([t, t - 1]), np.column_stack([1 + t, 0 * t])]
+    arms = [
+        np.column_stack([t, 1 - t]),
+        np.column_stack([t, t - 1]),
+        np.column_stack([1 + t, 0 * t]),
+    ]
     data = pd.DataFrame(
         np.vstack(arms) + 0.01 * rng.normal(size=(450, 2)), index=[f"cell_{i}" for i in range(450)]
     )
