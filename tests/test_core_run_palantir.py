@@ -136,3 +136,20 @@ def test_palantir_early_cells_merged_by_snapping():
             use_early_cell_as_start=True,
         )
     assert list(result.waypoints[:2]) == starts
+
+
+# Test the warning when automatic detection finds no terminal state
+@pytest.mark.filterwarnings("ignore:Changing the sparsity structure of a csr_matrix is expensive.")
+def test_palantir_no_terminal_state_warns():
+    # a line with a start cell at each end: the latest cells sit in the middle, not at a boundary
+    n_cells = 200
+    rng = np.random.default_rng(0)
+    x = np.linspace(0, 1, n_cells)
+    data = pd.DataFrame(
+        np.column_stack([x, 0.01 * rng.random(n_cells)]),
+        index=[f"cell_{i}" for i in range(n_cells)],
+    )
+    ends = ["cell_0", f"cell_{n_cells - 1}"]
+    with pytest.warns(UserWarning, match="No terminal states were detected"):
+        result = run_palantir(data, ends, num_waypoints=50, use_early_cell_as_start=True)
+    assert result.branch_probs.shape[1] == 0

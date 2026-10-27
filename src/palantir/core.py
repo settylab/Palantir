@@ -700,6 +700,13 @@ def _terminal_states_from_markov_chain(
 
     # Nearest diffusion map boundaries
     if len(cells) == 0:
+        warnings.warn(
+            "No terminal states were detected, so there are no fate probabilities. "
+            "This can happen with several start cells, when the latest cells lie between them. "
+            "Pass terminal_states explicitly.",
+            UserWarning,
+            stacklevel=2,
+        )
         return np.array([])
 
     dm_vecs = wp_data.loc[dm_boundaries, :].values
