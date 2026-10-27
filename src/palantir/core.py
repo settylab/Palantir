@@ -466,12 +466,13 @@ def _compute_pseudotime(
 
 def identify_terminal_states(
     ms_data: pd.DataFrame,
-    early_cell: str,
+    early_cell: str | list[str],
     knn: int = 30,
     num_waypoints: int = 1200,
     n_jobs: int = -1,
     max_iterations: int = 25,
     seed: int | np.ndarray | np.random.Generator | BitGenerator | SeedSequence | RandomState | None = 20,
+    use_early_cell_as_start: bool = False,
 ) -> tuple[np.ndarray, pd.Index]:
     """
     Identify terminal states from multi-scale data.
@@ -483,8 +484,8 @@ def identify_terminal_states(
     ----------
     ms_data : pd.DataFrame
         Multi-scale space diffusion components.
-    early_cell : str
-        Start cell for pseudotime construction.
+    early_cell : str | list[str]
+        Start cell for pseudotime construction, or a list of start cells, as in run_palantir.
     knn : int, optional
         Number of nearest neighbors for graph construction. Default is 30.
     num_waypoints : int, optional
@@ -495,6 +496,9 @@ def identify_terminal_states(
         Maximum number of iterations for pseudotime convergence. Default is 25.
     seed : int | np.ndarray | np.random.Generator | BitGenerator | SeedSequence | RandomState | None, optional
         Random seed for waypoint sampling. Default is 20.
+    use_early_cell_as_start : bool, optional
+        If True, the early cells are used as start cells. If False, each is replaced by its nearest
+        diffusion-component boundary cell, as in run_palantir. Default is False.
         
     Returns
     -------
@@ -504,16 +508,9 @@ def identify_terminal_states(
         excluded_boundaries : pd.Index
             Boundary cells that are not terminal states.
     """
-    # Normalize early_cell identifier
-    early_cell_dict, _, n_early_found = normalize_cell_identifiers(
-        [early_cell], ms_data.index, context="identify_terminal_states early_cell"
+    early_cells = _normalize_early_cells(
+        early_cell, ms_data.index, "identify_terminal_states early_cell", "data.index"
     )
-    if n_early_found == 0:
-        raise ValueError(
-            f"Early cell '{early_cell}' not found in data. "
-            f"Please provide a valid cell identifier from data.index (type: {type(ms_data.index[0]).__name__})"
-        )
-    early_cell = list(early_cell_dict.keys())[0]
 
     # Scale components
     data = pd.DataFrame(
@@ -522,24 +519,20 @@ def identify_terminal_states(
         columns=ms_data.columns,
     )
 
-    #  Start cell as the nearest diffusion map boundary
+    #  Start cells as the nearest diffusion map boundaries, unless use_early_cell_as_start
     dm_boundaries = pd.Index(set(data.idxmax()).union(data.idxmin()))
-    dists = pairwise_distances(
-        data.loc[dm_boundaries, :], data.loc[early_cell, :].values.reshape(1, -1)
-    )
-    start_cell = pd.Series(np.ravel(dists), index=dm_boundaries).idxmin()
+    start_cells = _start_cells(data, early_cells, dm_boundaries, use_early_cell_as_start)
 
     # Sample waypoints
-    # Append start cell
     waypoints = _max_min_sampling(data, num_waypoints, seed)
     waypoints = waypoints.union(dm_boundaries)
-    waypoints = pd.Index(waypoints.difference([start_cell]).unique())
+    waypoints = pd.Index(waypoints.difference(start_cells).unique())
 
-    # Append start cell
-    waypoints = pd.Index([start_cell]).append(waypoints)
+    # Append start cells
+    waypoints = start_cells.append(waypoints)
 
-    # Distance to start cell as pseudo pseudotime
-    pseudotime, _ = _compute_pseudotime(data, start_cell, knn, waypoints, n_jobs, max_iterations)
+    # Distance to the start cells as pseudo pseudotime
+    pseudotime, _ = _compute_pseudotime(data, start_cells, knn, waypoints, n_jobs, max_iterations)
 
     # Markov chain
     wp_data = data.loc[waypoints, :]
@@ -550,7 +543,7 @@ def identify_terminal_states(
 
     # Excluded diffusion map boundaries
     dm_boundaries = pd.Index(set(wp_data.idxmax()).union(wp_data.idxmin()))
-    excluded_boundaries = dm_boundaries.difference(terminal_states).difference([start_cell])
+    excluded_boundaries = dm_boundaries.difference(terminal_states).difference(start_cells)
     return terminal_states, excluded_boundaries
 
 
