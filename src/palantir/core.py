@@ -90,10 +90,16 @@ def run_palantir(
     data : pd.DataFrame | AnnData
         Either a DataFrame of multiscale space diffusion components or a Scanpy AnnData object.
     early_cell : str | list[str]
-        Start cell for pseudotime construction, or a list of start cells. With several, pseudotime
-        starts from the nearest of them.
+        Start cell for pseudotime construction, or a list of start cells. With several, the pseudotime
+        of a cell is its distance from the nearest start cell, and every start cell is held at 0. This
+        is a modelling choice: it suits several independent progenitor populations (separate niches or
+        origins); when one most primitive cell is known, a single start cell remains the better choice.
+        With several start cells, use_early_cell_as_start=True is recommended, and passing
+        terminal_states explicitly is advisable (see below).
     terminal_states : list | pd.Series | dict, optional
-        User-defined terminal states structure in the format {terminal_name:cell_name}. Default is None.
+        User-defined terminal states structure in the format {terminal_name:cell_name}. Default is None,
+        which detects them automatically. With several start cells the latest cells can lie between
+        them, and the detection can then find no terminal state.
     knn : int, optional
         Number of nearest neighbors for graph construction. Default is 30.
     num_waypoints : int, optional
@@ -103,7 +109,9 @@ def run_palantir(
     scale_components : bool, optional
         If True, components are scaled. Default is True.
     use_early_cell_as_start : bool, optional
-        If True, the early cells are used as start. Default is False.
+        If True, the early cells are used as start cells. If False, each is replaced by its nearest
+        diffusion-component boundary cell; several early cells can then merge into one start cell
+        (a warning says so), so True is recommended with several. Default is False.
     max_iterations : int, optional
         Maximum number of iterations for pseudotime convergence. Default is 25.
     eigvec_key : str, optional
@@ -167,17 +175,7 @@ def run_palantir(
     else:
         ms_data = data
 
-    # Normalize early_cell identifiers
-    early_cell = list(early_cell) if pd.api.types.is_list_like(early_cell) else [early_cell]
-    early_cell_dict, _, n_early_found = normalize_cell_identifiers(
-        early_cell, ms_data.index, context="run_palantir early_cell"
-    )
-    if n_early_found < len(early_cell_dict):
-        raise ValueError(
-            f"Early cell(s) {early_cell} not all found in data. "
-            f"Please provide valid cell identifiers from data.obs_names (type: {type(ms_data.index[0]).__name__})"
-        )
-    early_cells = list(early_cell_dict.keys())
+    early_cells = _normalize_early_cells(early_cell, ms_data.index, "run_palantir early_cell", "data.obs_names")
 
     if scale_components:
         data_df = pd.DataFrame(
@@ -191,12 +189,7 @@ def run_palantir(
     # ################################################
     # Determine the boundary cell closest to each user defined early cell
     dm_boundaries = pd.Index(set(data_df.idxmax()).union(data_df.idxmin()))
-    if use_early_cell_as_start:
-        start_cells = pd.Index(early_cells)
-    else:
-        dists = pairwise_distances(data_df.loc[dm_boundaries, :], data_df.loc[early_cells, :])
-        start_cells = dm_boundaries[np.argmin(dists, axis=0)]
-    start_cells = start_cells.unique()
+    start_cells = _start_cells(data_df, early_cells, dm_boundaries, use_early_cell_as_start)
 
     # Sample waypoints
     print("Sampling and flocking waypoints...")
@@ -254,6 +247,43 @@ def run_palantir(
             data.uns[fate_prob_key + "_columns"] = branch_probs.columns.values
 
     return pr_res
+
+
+def _normalize_early_cells(early_cell, index: pd.Index, context: str, names: str) -> list:
+    """Normalize one early cell or a list of them; raise naming the cells not found in index."""
+    early_cell = list(early_cell) if pd.api.types.is_list_like(early_cell) else [early_cell]
+    early_cell_dict, _, n_early_found = normalize_cell_identifiers(early_cell, index, context=context)
+    if n_early_found < len(early_cell_dict):
+        missing = [cell for cell in early_cell_dict if cell not in index] or list(early_cell_dict)
+        raise ValueError(
+            f"Early cell(s) {missing} not found in data. "
+            f"Please provide valid cell identifiers from {names} (type: {type(index[0]).__name__})"
+        )
+    return list(early_cell_dict.keys())
+
+
+def _start_cells(
+    data: pd.DataFrame, early_cells: list, dm_boundaries: pd.Index, use_early_cell_as_start: bool
+) -> pd.Index:
+    """Start cells: the early cells themselves, or each moved to its nearest diffusion-map boundary.
+
+    Warns when moving them merges several early cells into one start cell.
+    """
+    if use_early_cell_as_start:
+        return pd.Index(early_cells).unique()
+    dists = pairwise_distances(data.loc[dm_boundaries, :], data.loc[early_cells, :])
+    snapped = dm_boundaries[np.argmin(dists, axis=0)]
+    start_cells = snapped.unique()
+    if len(start_cells) < len(early_cells):
+        moves = ", ".join(f"{early} -> {start}" for early, start in zip(early_cells, snapped))
+        warnings.warn(
+            f"{len(early_cells)} early cells were moved to their nearest diffusion-component boundary "
+            f"cells, which leaves only {len(start_cells)} start cell(s): {moves}. "
+            "Pass use_early_cell_as_start=True to start from the early cells themselves.",
+            UserWarning,
+            stacklevel=3,
+        )
+    return start_cells
 
 
 def _max_min_sampling(

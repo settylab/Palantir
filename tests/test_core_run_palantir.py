@@ -1,3 +1,5 @@
+import warnings
+
 import pytest
 import pandas as pd
 import numpy as np
@@ -101,3 +103,36 @@ def test_compute_pseudotime_start_cells_disconnected():
     waypoints = pd.Index(starts).append(data.index[1:30:3]).append(data.index[31::3])
     pseudotime, _ = _compute_pseudotime(data, starts, 5, waypoints, 1)
     assert np.isfinite(pseudotime).all()
+
+
+# Test that the not-found error names only the missing early cells
+@pytest.mark.filterwarnings("ignore:run_palantir early_cell")
+def test_palantir_missing_early_cell_message(mock_data):
+    with pytest.raises(ValueError) as excinfo:
+        run_palantir(mock_data, ["cell_0", "not_a_cell"])
+    assert "not_a_cell" in str(excinfo.value)
+    assert "cell_0" not in str(excinfo.value)
+
+
+# Test the warning when snapping to the boundaries merges early cells
+@pytest.mark.filterwarnings("ignore:Changing the sparsity structure of a csr_matrix is expensive.")
+def test_palantir_early_cells_merged_by_snapping():
+    n_cells = 200
+    rng = np.random.default_rng(0)
+    x = np.linspace(0, 1, n_cells)
+    data = pd.DataFrame(
+        np.column_stack([x, 0.01 * rng.random(n_cells)]),
+        index=[f"cell_{i}" for i in range(n_cells)],
+    )
+    # two early cells near the same end both snap to its boundary cell
+    starts = ["cell_1", "cell_2"]
+    with pytest.warns(UserWarning, match="leaves only 1 start cell"):
+        run_palantir(data, starts, num_waypoints=50, terminal_states=[f"cell_{n_cells - 1}"])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        warnings.filterwarnings("ignore", message="Changing the sparsity")
+        result = run_palantir(
+            data, starts, num_waypoints=50, terminal_states=[f"cell_{n_cells - 1}"],
+            use_early_cell_as_start=True,
+        )
+    assert list(result.waypoints[:2]) == starts
