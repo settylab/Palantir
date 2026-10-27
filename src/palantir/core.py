@@ -369,15 +369,18 @@ def _compute_pseudotime(
     backend = _get_joblib_backend()
     n_chunks = min(effective_n_jobs(n_jobs), len(wp_indices))
     if n_chunks > 1 and backend != "threading":
-        dists = np.vstack(
-            Parallel(n_jobs=n_chunks, backend=backend)(
-                delayed(csgraph.dijkstra)(adj, directed=False, indices=chunk)
-                for chunk in np.array_split(wp_indices, n_chunks)
-            )
-        )
+        # Fill a preallocated D as the blocks arrive. Several blocks per job keep the
+        # finished-but-unconsumed blocks small, so the peak stays near one copy of D.
+        D_vals = np.empty((len(wp_indices), data.shape[0]))
+        row = 0
+        for block in Parallel(n_jobs=n_chunks, backend=backend, return_as="generator")(
+            delayed(csgraph.dijkstra)(adj, directed=False, indices=chunk)
+            for chunk in np.array_split(wp_indices, min(4 * n_chunks, len(wp_indices)))
+        ):
+            D_vals[row : row + len(block)] = block
+            row += len(block)
     else:
-        dists = csgraph.dijkstra(adj, directed=False, indices=wp_indices)
-    D_vals = np.asarray(dists, dtype=float)
+        D_vals = np.asarray(csgraph.dijkstra(adj, directed=False, indices=wp_indices), dtype=float)
     end = time.time()
     print("Time for shortest paths: {} minutes".format((end - start) / 60))
 
