@@ -135,6 +135,21 @@ def test_compute_pseudotime_equivalence():
     assert np.allclose(W_new.values, W_ref.values, atol=1e-10, rtol=1e-10)
 
 
+def test_compute_pseudotime_cell_far_from_waypoints():
+    # The last cell is so far from every waypoint that all its Gaussian weights underflow in float64
+    rng = np.random.default_rng(3)
+    data = pd.DataFrame(rng.normal(size=(200, 2)))
+    data.iloc[-1] = 1e3
+    data.index = pd.Index([f"cell_{i}" for i in range(data.shape[0])])
+    waypoints = data.index[:5]
+
+    pt, W = _compute_pseudotime(data, waypoints[0], knn=5, waypoints=waypoints, n_jobs=1)
+
+    assert np.isfinite(pt.values).all()
+    assert np.allclose(W.sum(axis=0), 1)
+    assert pt.idxmax() == data.index[-1]
+
+
 def test_compute_kernel_scanpy_equivalence():
     rng = np.random.default_rng(2)
     data = pd.DataFrame(rng.normal(size=(20, 5)))
